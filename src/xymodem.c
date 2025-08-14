@@ -40,7 +40,8 @@
 
 #define min(a, b)       ((a) < (b) ? (a) : (b))
 
-struct xpacket_1k {
+struct xpacket_1k
+{
     uint8_t  type;
     uint8_t  seq;
     uint8_t  nseq;
@@ -49,7 +50,8 @@ struct xpacket_1k {
     uint8_t  crc_lo;
 } __attribute__((packed));
 
-struct xpacket {
+struct xpacket
+{
     uint8_t  type;
     uint8_t  seq;
     uint8_t  nseq;
@@ -63,7 +65,8 @@ static uint16_t crc16(const uint8_t *data, uint16_t size)
 {
     uint16_t crc, s;
 
-    for (crc = 0; size > 0; size--) {
+    for (crc = 0; size > 0; size--)
+    {
         s = *data++ ^ (crc >> 8);
         s ^= (s >> 4);
         crc = (crc << 8) ^ s ^ (s << 5) ^ (s << 12);
@@ -81,16 +84,19 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
     /* Drain pending characters from serial line. Insist on the
      * last drained character being 'C'.
      */
-    while(1) {
+    while (true)
+    {
         if (key_hit)
             return -1;
         rc = read_poll(sio, &resp, 1, 50);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             if (resp == 'C') break;
             if (resp == CAN) return ERR;
             continue;
         }
-        else if (rc < 0) {
+        else if (rc < 0)
+        {
             tio_error_print("Read sync from serial failed");
             return ERR;
         }
@@ -100,7 +106,8 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
     packet.seq  = seq;
     packet.type = STX;
 
-    while (len) {
+    while (len)
+    {
         size_t  sz, z = 0;
         char   *from, status;
 
@@ -116,11 +123,14 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         /* Send packet */
         from = (char *) &packet;
         sz =  sizeof(packet);
-        while (sz) {
+        while (sz)
+        {
             if (key_hit)
                 return ERR;
-            if ((rc = write(sio, from, sz)) < 0 ) {
-                if (errno ==  EWOULDBLOCK) {
+            if ((rc = write(sio, from, sz)) < 0 )
+            {
+                if (errno ==  EWOULDBLOCK)
+                {
                     usleep(1000);
                     continue;
                 }
@@ -138,30 +148,36 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         if (seq == 0 && packet.data[0] == 0) resp = ACK;
 
         /* Read receiver response, timeout 1 s */
-        for(int n=0; n < 20; n++) {
+        for (int n = 0; n < 20; n++)
+        {
             if (key_hit)
                 return ERR;
             rc = read_poll(sio, &resp, 1, 50);
-            if (rc < 0) {
+            if (rc < 0)
+            {
                 tio_error_print("Read ack/nak from serial failed");
                 return ERR;
-            } else if(rc > 0) {
+            }
+            else if (rc > 0)
+            {
                 break;
             }
         }
 
         /* Update "progress bar" */
-        switch (resp) {
-        case NAK: status = 'N'; break;
-        case ACK: status = '.'; break;
-        case 'C': status = 'C'; break;
-        case CAN: status = '!'; return ERR;
-        default:  status = '?';
+        switch (resp)
+        {
+            case NAK: status = 'N'; break;
+            case ACK: status = '.'; break;
+            case 'C': status = 'C'; break;
+            case CAN: status = '!'; return ERR;
+            default:  status = '?';
         }
         write(STDOUT_FILENO, &status, 1);
 
         /* Move to next block after ACK */
-        if (resp == ACK) {
+        if (resp == ACK)
+        {
             packet.seq++;
             len -= z;
             buf += z;
@@ -169,23 +185,29 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
     }
 
     /* Send EOT at 1 Hz until ACK or CAN received */
-    while (seq) {
+    while (seq)
+    {
         if (key_hit)
             return ERR;
-        if (write(sio, EOT_STR, 1) < 0) {
+        if (write(sio, EOT_STR, 1) < 0)
+        {
             tio_error_print("Write EOT to serial failed");
             return ERR;
         }
         write(STDOUT_FILENO, "|", 1);
         /* 1s timeout */
         rc = read_poll(sio, &resp, 1, 1000);
-        if (rc < 0) {
+        if (rc < 0)
+        {
             tio_error_print("Read from serial failed");
             return ERR;
-        } else if(rc == 0) {
+        }
+        else if (rc == 0)
+        {
             continue;
         }
-        if (resp == ACK || resp == CAN) {
+        if (resp == ACK || resp == CAN)
+        {
             write(STDOUT_FILENO, "\r\n", 2);
             return (resp == ACK) ? OK : ERR;
         }
@@ -203,16 +225,19 @@ static int xmodem(int sio, const void *data, size_t len)
     /* Drain pending characters from serial line. Insist on the
      * last drained character being 'C'.
      */
-    while(1) {
+    while (true)
+    {
         if (key_hit)
             return -1;
         rc = read_poll(sio, &resp, 1, 50);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             if (resp == 'C') break;
             if (resp == CAN) return ERR;
             continue;
         }
-        else if (rc < 0) {
+        else if (rc < 0)
+        {
             tio_error_print("Read sync from serial failed");
             return ERR;
         }
@@ -222,7 +247,8 @@ static int xmodem(int sio, const void *data, size_t len)
     packet.seq  = 1;
     packet.type = SOH;
 
-    while (len) {
+    while (len)
+    {
         size_t  sz, z = 0;
         char   *from, status;
 
@@ -238,11 +264,14 @@ static int xmodem(int sio, const void *data, size_t len)
         /* Send packet */
         from = (char *) &packet;
         sz =  sizeof(packet);
-        while (sz) {
+        while (sz)
+        {
             if (key_hit)
                 return ERR;
-            if ((rc = write(sio, from, sz)) < 0 ) {
-                if (errno ==  EWOULDBLOCK) {
+            if ((rc = write(sio, from, sz)) < 0 )
+            {
+                if (errno ==  EWOULDBLOCK)
+                {
                     usleep(1000);
                     continue;
                 }
@@ -257,30 +286,36 @@ static int xmodem(int sio, const void *data, size_t len)
         resp = 0;
 
         /* Read receiver response, timeout 1 s */
-        for(int n=0; n < 20; n++) {
+        for (int n = 0; n < 20; n++)
+        {
             if (key_hit)
                 return ERR;
             rc = read_poll(sio, &resp, 1, 50);
-            if (rc < 0) {
+            if (rc < 0)
+            {
                 tio_error_print("Read ack/nak from serial failed");
                 return ERR;
-            } else if(rc > 0) {
+            }
+            else if (rc > 0)
+            {
                 break;
             }
         }
 
         /* Update "progress bar" */
-        switch (resp) {
-        case NAK: status = 'N'; break;
-        case ACK: status = '.'; break;
-        case 'C': status = 'C'; break;
-        case CAN: status = '!'; return ERR;
-        default:  status = '?';
+        switch (resp)
+        {
+            case NAK: status = 'N'; break;
+            case ACK: status = '.'; break;
+            case 'C': status = 'C'; break;
+            case CAN: status = '!'; return ERR;
+            default:  status = '?';
         }
         write(STDOUT_FILENO, &status, 1);
 
         /* Move to next block after ACK */
-        if (resp == ACK) {
+        if (resp == ACK)
+        {
             packet.seq++;
             len -= z;
             buf += z;
@@ -288,23 +323,29 @@ static int xmodem(int sio, const void *data, size_t len)
     }
 
     /* Send EOT at 1 Hz until ACK or CAN received */
-    while (1) {
+    while (true)
+    {
         if (key_hit)
             return ERR;
-        if (write(sio, EOT_STR, 1) < 0) {
+        if (write(sio, EOT_STR, 1) < 0)
+        {
             tio_error_print("Write EOT to serial failed");
             return ERR;
         }
         write(STDOUT_FILENO, "|", 1);
         /* 1s timeout */
         rc = read_poll(sio, &resp, 1, 1000);
-        if (rc < 0) {
+        if (rc < 0)
+        {
             tio_error_print("Read from serial failed");
             return ERR;
-        } else if(rc == 0) {
+        }
+        else if (rc == 0)
+        {
             continue;
         }
-        if (resp == ACK || resp == CAN) {
+        if (resp == ACK || resp == CAN)
+        {
             write(STDOUT_FILENO, "\r\n", 2);
             return (resp == ACK) ? OK : ERR;
         }
@@ -325,8 +366,10 @@ int start_receive(int sio)
            seconds.  If nothing is received in that time then return false to indicate
            that the transfer did not start. */
         rc = write(sio, "C", 1);
-        if (rc < 0) {
-            if (errno ==  EWOULDBLOCK) {
+        if (rc < 0)
+        {
+            if (errno ==  EWOULDBLOCK)
+            {
                 usleep(1000);
                 continue;
             }
@@ -353,7 +396,7 @@ int start_receive(int sio)
     return rc;
 }
 
-uint16_t update_CRC(uint16_t crc, char data_char) 
+uint16_t update_CRC(uint16_t crc, char data_char)
 {
     uint8_t data = data_char;
     crc = crc ^ ((uint16_t)data << 8);
@@ -385,19 +428,25 @@ int receive_packet(int sio, struct xpacket packet, int fd)
 
     /* Read seq bytes*/
     rc = read_poll(sio, &rxSeq1, 1, 3000);
-    if (rc == 0) {
+    if (rc == 0)
+    {
         tio_error_print("Timeout waiting for first seq byte");
         return ERR;
-    } else if (rc < 0) {
-        tio_error_print("Error reading first seq byte")
+    }
+    else if (rc < 0)
+    {
+        tio_error_print("Error reading first seq byte");
         return ERR_FATAL;
     }
     rc = read_poll(sio, &rxSeq2, 1, 3000);
-    if (rc == 0) {
+    if (rc == 0)
+    {
         tio_error_print("Timeout waiting for second seq byte");
         return ERR;
-    } else if (rc < 0) {
-        tio_error_print("Error reading second seq byte")
+    }
+    else if (rc < 0)
+    {
+        tio_error_print("Error reading second seq byte");
         return ERR_FATAL;
     }
     if (key_hit)
@@ -407,20 +456,24 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     for (unsigned ix = 0; (ix < sizeof(packet.data)); ix++)
     {
         rc = read_poll(sio, &resp, 1, 3000);
-        /* If the read times out or fails then fail this packet. */ 
+        /* If the read times out or fails then fail this packet. */
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for next packet char");
             rc = write(sio, CAN_STR, 1);
-            if (rc < 0) {
+            if (rc < 0)
+            {
                 tio_error_print("Write cancel packet to serial failed");
                 return ERR_FATAL;
             }
             return ERR;
-        } else if (rc < 0) {
-            tio_error_print("Error reading next packet char")
+        }
+        else if (rc < 0)
+        {
+            tio_error_print("Error reading next packet char");
             rc = write(sio, CAN_STR, 1);
-            if (rc < 0) {
+            if (rc < 0)
+            {
                 tio_error_print("Write cancel packet to serial failed");
             }
             return ERR_FATAL;
@@ -433,11 +486,14 @@ int receive_packet(int sio, struct xpacket packet, int fd)
 
     /* Read CRC */
     rc = read_poll(sio, &resp, 1, 3000);
-    if (rc == 0) {
+    if (rc == 0)
+    {
         tio_error_print("Timeout waiting for first CRC byte");
         return ERR;
-    } else if (rc < 0) {
-        tio_error_print("Error reading first CRC byte")
+    }
+    else if (rc < 0)
+    {
+        tio_error_print("Error reading first CRC byte");
         return ERR_FATAL;
     }
 
@@ -446,20 +502,23 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     rxCrc  = uresp16 << 8;
 
     rc = read_poll(sio, &resp, 1, 3000);
-    if (rc == 0) {
+    if (rc == 0)
+    {
         tio_error_print("Timeout waiting for second CRC byte");
         return ERR;
-    } else if (rc < 0) {
-        tio_error_print("Error reading second CRC byte")
+    }
+    else if (rc < 0)
+    {
+        tio_error_print("Error reading second CRC byte");
         return ERR_FATAL;
     }
-    
+
     uresp = resp;
     uresp16 = uresp;
     rxCrc |= uresp16;
 
     if (key_hit)
-            return USER_CAN;
+        return USER_CAN;
 
     /* At this point in the code, there should not be anything in the receive buffer
     because the sender has just sent a complete packet and is waiting on a response. */
@@ -469,7 +528,8 @@ int receive_packet(int sio, struct xpacket packet, int fd)
         tio_error_print("%s", strerror(errno));
         tio_error_print("Poll check error after packet finish");
         rc = write(sio, CAN_STR, 1);
-        if (rc < 0) {
+        if (rc < 0)
+        {
             tio_error_print("Write cancel packet to serial failed");
         }
         return ERR_FATAL;
@@ -494,7 +554,8 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     {
         /* Resend of previously processed packet. */
         rc = write(sio, ACK_STR, 1);
-        if (rc < 0) {
+        if (rc < 0)
+        {
             tio_error_print("Write acknowlegdement packet to serial failed");
             return ERR_FATAL;
         }
@@ -520,7 +581,8 @@ int receive_packet(int sio, struct xpacket packet, int fd)
         {
             tio_error_print("Problem writing to file");
             rc = write(sio, CAN_STR, 1);
-            if (rc < 0) {
+            if (rc < 0)
+            {
                 tio_error_print("Write cancel packet to serial failed");
             }
             return ERR_FATAL;
@@ -545,16 +607,20 @@ int xmodem_receive(int sio, int fd)
     char status;
 
     /* Drain pending characters from serial line.*/
-    while(1) {
+    while (true)
+    {
         if (key_hit)
             return -1;
         rc = read_poll(sio, &resp, 1, 50);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             if (resp == CAN) return ERR;
             break;
         }
-        else if (rc < 0) {
-            if (rc != USER_CAN) {
+        else if (rc < 0)
+        {
+            if (rc != USER_CAN)
+            {
                 tio_error_print("Read sync from serial failed");
             }
             return ERR;
@@ -571,79 +637,95 @@ int xmodem_receive(int sio, int fd)
     {
         tio_error_print("Timeout waiting for transfer to start");
         return ERR;
-    } else if (rc < 0) {
+    }
+    else if (rc < 0)
+    {
         tio_error_print("Error starting XMODEM receive");
         return ERR;
     }
 
-    while (!complete) {
+    while (!complete)
+    {
         /* Poll for 1 new byte for 3 seconds */
         rc = read_poll(sio, &resp, 1, 3000);
-        if (rc == 0) {
+        if (rc == 0)
+        {
             tio_error_print("Timeout waiting for start of next packet");
             return ERR;
-        } else if (rc < 0) {
-            tio_error_print("Error reading start of next packet")
+        }
+        else if (rc < 0)
+        {
+            tio_error_print("Error reading start of next packet");
             return ERR;
         }
         if (key_hit)
             return USER_CAN;
 
-        switch(resp)
+        switch (resp)
         {
             case SOH:
-            /* Start of a packet */
-            rc = receive_packet(sio, packet, fd);
-            if (rc == OK) {
-                packet.seq++;
-                status = '.';
-            } else if (rc == ERR) {
-                rc = write(sio, NAK_STR, 1);
-                if (rc < 0) {
-                    tio_error_print("Writing not acknowledge packet to serial failed");
+                /* Start of a packet */
+                rc = receive_packet(sio, packet, fd);
+                if (rc == OK)
+                {
+                    packet.seq++;
+                    status = '.';
+                }
+                else if (rc == ERR)
+                {
+                    rc = write(sio, NAK_STR, 1);
+                    if (rc < 0)
+                    {
+                        tio_error_print("Writing not acknowledge packet to serial failed");
+                        return ERR;
+                    }
+                    status = 'N';
+                }
+                else if (rc == ERR_FATAL)
+                {
+                    tio_error_print("Receive cancelled due to fatal error");
                     return ERR;
                 }
-                status = 'N';
-            } else if (rc == ERR_FATAL) {
-                tio_error_print("Receive cancelled due to fatal error");
-                return ERR;
-            } else if (rc == USER_CAN) {
-                rc = write(sio, CAN_STR, 1);
-                if (rc < 0) {
-                    tio_error_print("Writing cancel to serial failed");
-                    return ERR;
+                else if (rc == USER_CAN)
+                {
+                    rc = write(sio, CAN_STR, 1);
+                    if (rc < 0)
+                    {
+                        tio_error_print("Writing cancel to serial failed");
+                        return ERR;
+                    }
+                    return USER_CAN;
                 }
-                return USER_CAN;
-            } else if (rc == RX_IGNORE) {
-                status = ':';
-            }
-            break;
+                else if (rc == RX_IGNORE)
+                {
+                    status = ':';
+                }
+                break;
 
             case EOT:
-            /* End of Transfer */
-            rc = write(sio, ACK_STR, 1);
-            if (rc < 0)
-            {
-                tio_error_print("Write acknowlegdement packet to serial failed");
-                return ERR;
-            }
-            complete = true;
-            status = '\0';
-            write(STDOUT_FILENO, "|\r\n", 3);
-            break;
+                /* End of Transfer */
+                rc = write(sio, ACK_STR, 1);
+                if (rc < 0)
+                {
+                    tio_error_print("Write acknowlegdement packet to serial failed");
+                    return ERR;
+                }
+                complete = true;
+                status = '\0';
+                write(STDOUT_FILENO, "|\r\n", 3);
+                break;
 
             case CAN:
-            /* Cancel from sender */
-            tio_error_print("Transmission cancelled from sender");
-            return ERR;
-            break;
+                /* Cancel from sender */
+                tio_error_print("Transmission cancelled from sender");
+                return ERR;
+                break;
 
             default:
-            tio_error_print("Unexpected character received waiting for next packet");
-            return ERR;
-            break;
+                tio_error_print("Unexpected character received waiting for next packet");
+                return ERR;
+                break;
         }
-        
 
         /* Update "progress bar" */
         write(STDOUT_FILENO, &status, 1);
@@ -660,14 +742,16 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
 
     /* Open file, map into memory */
     fd = open(filename, O_RDONLY);
-    if (fd < 0) {
+    if (fd < 0)
+    {
         tio_error_print("Could not open file");
         return ERR;
     }
     fstat(fd, &stat);
     len = stat.st_size;
     buf = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (!buf) {
+    if (!buf)
+    {
         close(fd);
         tio_error_print("Could not mmap file");
         return ERR;
@@ -675,15 +759,19 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
 
     /* Do transfer */
     key_hit = 0;
-    if (mode == XMODEM_1K) {
+    if (mode == XMODEM_1K)
+    {
         rc = xmodem_1k(sio, buf, len, 1);
     }
-    else if (mode == XMODEM_CRC) {
+    else if (mode == XMODEM_CRC)
+    {
         rc = xmodem(sio, buf, len);
     }
-    else {
+    else
+    {
         /* Ymodem: hdr + file + fin */
-        while(1) {
+        while (true)
+        {
             char hdr[1024], *p;
 
             rc = -1;
@@ -694,7 +782,7 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
             if (xmodem_1k(sio, hdr, p - hdr, 0) < 0) break; /* hdr with metadata */
             if (xmodem_1k(sio, buf, len,     1) < 0) break; /* xmodem file */
             if (xmodem_1k(sio, "",  1,       0) < 0) break; /* empty hdr = fin */
-            rc = 0;                               break;
+            rc = 0;                                  break;
         }
     }
     key_hit = 0xff;
@@ -712,21 +800,25 @@ int xymodem_receive(int sio, const char *filename, modem_mode_t mode)
 
     /* Create new file */
     fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0664);
-    if (fd < 0) {
+    if (fd < 0)
+    {
         tio_error_print("Could not open file");
         return ERR;
     }
 
     /* Do transfer */
     key_hit = 0;
-    if (mode == XMODEM_1K) {
+    if (mode == XMODEM_1K)
+    {
         tio_error_print("Not supported");
         rc = -1;
     }
-    else if (mode == XMODEM_CRC) {
+    else if (mode == XMODEM_CRC)
+    {
         rc = xmodem_receive(sio, fd);
     }
-    else {
+    else
+    {
         tio_error_print("Not supported");
         rc = -1;
     }
