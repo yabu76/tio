@@ -91,6 +91,9 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         rc = read_poll(sio, &resp, 1, 50);
         if (rc == 0)
         {
+            /* timeout 50 ms
+               resp has last received character beacuse read_poll() doesn't
+               destroy resp value in this case. */
             if (resp == 'C') break;
             if (resp == CAN) return ERR;
             continue;
@@ -232,6 +235,9 @@ static int xmodem(int sio, const void *data, size_t len)
         rc = read_poll(sio, &resp, 1, 50);
         if (rc == 0)
         {
+            /* timeout 50 ms
+               resp has last received character beacuse read_poll() doesn't
+               destroy resp value in this case. */
             if (resp == 'C') break;
             if (resp == CAN) return ERR;
             continue;
@@ -389,6 +395,10 @@ int start_receive(int sio)
             {
                 return rc;
             }
+            else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
+            {
+                return -1;
+            }
         }
         if (key_hit)
             return USER_CAN;
@@ -542,6 +552,10 @@ int receive_packet(int sio, struct xpacket packet, int fd)
             char dummy = 0;
             /* Drain buffer */
             while (read_poll(sio, &dummy, 1, 100) > 0) {}
+            return ERR;
+        }
+        else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
+        {
             return ERR;
         }
     }

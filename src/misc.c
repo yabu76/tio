@@ -98,12 +98,17 @@ int read_poll(int fd, void *data, size_t len, int timeout)
         if (fds.revents & POLLIN)
         {
             // Read ready data
+            // return value should not be 0
             return read(fd, data, len);
+        }
+        else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
+        {
+            return -1;
         }
     }
 
     /* Timeout */
-    return ret;
+    return 0;
 }
 
 // Function to calculate djb2 hash of string
