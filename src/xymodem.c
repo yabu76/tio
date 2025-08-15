@@ -34,34 +34,42 @@
 #define OK  0
 #define ERR (-1)
 #define ERR_FATAL (-2)
-#define USER_CAN  (-5)
+#define ERR_TMO   (-3)
+#define ERR_USER_CAN  (-5)
 
 #define RX_IGNORE 5
 
 #define min(a, b)       ((a) < (b) ? (a) : (b))
 
-struct xpacket_1k
+struct xpkt_hdr
 {
     uint8_t  type;
     uint8_t  seq;
     uint8_t  nseq;
-    uint8_t  data[1024];
+} __attribute__((packed));
+
+struct xpkt_ftr_crc
+{
     uint8_t  crc_hi;
     uint8_t  crc_lo;
 } __attribute__((packed));
 
-struct xpacket
+struct xpacket_1k
 {
-    uint8_t  type;
-    uint8_t  seq;
-    uint8_t  nseq;
+    struct xpkt_hdr hdr;
+    uint8_t  data[1024];
+    struct xpkt_ftr_crc ftr;
+} __attribute__((packed));
+
+struct xpacket_128b
+{
+    struct xpkt_hdr hdr;
     uint8_t  data[128];
-    uint8_t  crc_hi;
-    uint8_t  crc_lo;
+    struct xpkt_ftr_crc ftr;
 } __attribute__((packed));
 
 /* See https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks */
-static uint16_t crc16(const uint8_t *data, uint16_t size)
+static uint16_t calculate_crc16(const uint8_t *data, uint16_t size)
 {
     uint16_t crc, s;
 
@@ -74,27 +82,47 @@ static uint16_t crc16(const uint8_t *data, uint16_t size)
     return crc;
 }
 
-static int xmodem_1k(int sio, const void *data, size_t len, int seq)
+static uint16_t update_crc16(uint16_t crc, char data_char)
 {
-    struct xpacket_1k  packet;
-    const uint8_t  *buf = data;
-    char            resp = 0;
-    int             rc, crc;
+    uint8_t data = data_char;
 
-    /* Drain pending characters from serial line. Insist on the
-     * last drained character being 'C'.
-     */
+    crc = crc ^ ((uint16_t)data << 8);
+    for (int ix = 0; (ix < 8); ix++)
+    {
+        if (crc & 0x8000)
+        {
+            crc = (crc << 1) ^ 0x1021;
+        }
+        else
+        {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+/*
+ * Drain pending characters from serial line. Insist on the
+ * last drained character being initial character 'C':CRC,1K
+ */
+static int xmsend_initial_handshake(int sio, char init_ch)
+{
+    int rc;
+    char resp = 0;
+
+    /* Wait for initial character */
     while (true)
     {
         if (key_hit)
-            return -1;
+            return ERR_USER_CAN;
+
         rc = read_poll(sio, &resp, 1, 50);
         if (rc == 0)
         {
             /* timeout 50 ms
                resp has last received character beacuse read_poll() doesn't
                destroy resp value in this case. */
-            if (resp == 'C') break;
+            if (resp == init_ch) break;
             if (resp == CAN) return ERR;
             continue;
         }
@@ -103,11 +131,96 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
             tio_error_print("Read sync from serial failed");
             return ERR;
         }
+    }
+    return OK;
+}
+
+/*
+ * Read receiver response, timeout 1 s
+ */
+static int xmsend_wait_response(int sio, char *resp, char tmo_resp)
+{
+    int rc;
+
+    for (int n = 0; n < 20; n++)
+    {
+        if (key_hit)
+            return ERR_USER_CAN;
+
+        rc = read_poll(sio, resp, 1, 50);
+        if (rc < 0)
+        {
+            tio_error_print("Read ack/nak from serial failed");
+            return ERR;
+        }
+        else if (rc > 0)
+        {
+            /* response received */
+            return OK;
+        }
+    }
+    /* no response time-out */
+    *resp = tmo_resp;
+    return OK;
+}
+
+/*
+ * Send EOT at 1 Hz until ACK or CAN received
+ */
+static int xmsend_repeat_eot_and_wait_response(int sio)
+{
+    int rc;
+    char resp;
+
+    while (true)
+    {
+        if (key_hit)
+            return ERR_USER_CAN;
+
+        if (write(sio, EOT_STR, 1) < 0)
+        {
+            tio_error_print("Write EOT to serial failed");
+            return ERR;
+        }
+        write(STDOUT_FILENO, "|", 1);
+        /* 1s timeout */
+        rc = read_poll(sio, &resp, 1, 1000);
+        if (rc < 0)
+        {
+            tio_error_print("Read from serial failed");
+            return ERR;
+        }
+        else if (rc == 0)
+        {
+            continue;
+        }
+        if (resp == ACK || resp == CAN)
+        {
+            write(STDOUT_FILENO, "\r\n", 2);
+            return (resp == ACK) ? OK : ERR;
+        }
+    }
+    return OK; /* not reached */
+}
+
+static int xmodem_send_1k(int sio, const void *data, size_t len, int seq)
+{
+    struct xpacket_1k packet;
+    const uint8_t  *buf = data;
+    char            resp = 0, tmo_resp;
+    int             rc, crc, err;
+
+    /* Drain pending characters from serial line.
+       Insist on the last drained character being 'C' */
+    err = xmsend_initial_handshake(sio, 'C');
+    if (err != OK)
+    {
+        return err;
     }
 
     /* Always work with 1K packets */
-    packet.seq  = seq;
-    packet.type = STX;
+    packet.hdr.seq  = seq;
+    packet.hdr.type = STX;
 
     while (len)
     {
@@ -118,10 +231,10 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         z = min(len, sizeof(packet.data));
         memcpy(packet.data, buf, z);
         memset(packet.data + z, 0, sizeof(packet.data) - z);
-        crc = crc16(packet.data, sizeof(packet.data));
-        packet.crc_hi = crc >> 8;
-        packet.crc_lo = crc;
-        packet.nseq = 0xff - packet.seq;
+        crc = calculate_crc16(packet.data, sizeof(packet.data));
+        packet.ftr.crc_hi = crc >> 8;
+        packet.ftr.crc_lo = crc;
+        packet.hdr.nseq = 0xff - packet.hdr.seq;
 
         /* Send packet */
         from = (char *) &packet;
@@ -129,7 +242,8 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         while (sz)
         {
             if (key_hit)
-                return ERR;
+                return ERR_USER_CAN;
+
             if ((rc = write(sio, from, sz)) < 0 )
             {
                 if (errno ==  EWOULDBLOCK)
@@ -145,26 +259,16 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         }
 
         /* Clear response */
-        resp = 0;
+        tmo_resp = 0;
 
         /* 'lrzsz' does not ACK ymodem's fin packet */
-        if (seq == 0 && packet.data[0] == 0) resp = ACK;
+        if (seq == 0 && packet.data[0] == 0) tmo_resp = ACK;
 
         /* Read receiver response, timeout 1 s */
-        for (int n = 0; n < 20; n++)
+        err = xmsend_wait_response(sio, &resp, tmo_resp);
+        if (err != OK)
         {
-            if (key_hit)
-                return ERR;
-            rc = read_poll(sio, &resp, 1, 50);
-            if (rc < 0)
-            {
-                tio_error_print("Read ack/nak from serial failed");
-                return ERR;
-            }
-            else if (rc > 0)
-            {
-                break;
-            }
+            return err;
         }
 
         /* Update "progress bar" */
@@ -181,190 +285,178 @@ static int xmodem_1k(int sio, const void *data, size_t len, int seq)
         /* Move to next block after ACK */
         if (resp == ACK)
         {
-            packet.seq++;
+            packet.hdr.seq++;
+            len -= z;
+            buf += z;
+        }
+    }
+
+    if (seq != 0)
+    {
+        /* Send EOT at 1 Hz until ACK or CAN received */
+        err = xmsend_repeat_eot_and_wait_response(sio);
+        if (err != OK) {
+            return err;
+        }
+    }
+
+    return OK;
+}
+
+static int xmodem_send_128b(int sio, const void *data, size_t len)
+{
+    struct xpacket_128b packet;
+    const uint8_t  *buf = data;
+    char            resp = 0, tmo_resp;
+    int             rc, crc, err;
+
+    /* Drain pending characters from serial line.
+       Insist on the last drained character being 'C' */
+    err = xmsend_initial_handshake(sio, 'C');
+    if (err != OK)
+        return err;
+
+    /* Always work with 128b packets */
+    packet.hdr.seq  = 1;
+    packet.hdr.type = SOH;
+
+    while (len)
+    {
+        size_t  sz, z = 0;
+        char   *from, status;
+
+        /* Build next packet, pad with 0 to full seq */
+        z = min(len, sizeof(packet.data));
+        memcpy(packet.data, buf, z);
+        memset(packet.data + z, 0, sizeof(packet.data) - z);
+        crc = calculate_crc16(packet.data, sizeof(packet.data));
+        packet.ftr.crc_hi = crc >> 8;
+        packet.ftr.crc_lo = crc;
+        packet.hdr.nseq = 0xff - packet.hdr.seq;
+
+        /* Send packet */
+        from = (char *) &packet;
+        sz =  sizeof(packet);
+        while (sz)
+        {
+            if (key_hit)
+                return ERR_USER_CAN;
+
+            if ((rc = write(sio, from, sz)) < 0 )
+            {
+                if (errno ==  EWOULDBLOCK)
+                {
+                    usleep(1000);
+                    continue;
+                }
+                tio_error_print("Write packet to serial failed");
+                return ERR;
+            }
+            from += rc;
+            sz   -= rc;
+        }
+
+        /* Clear response */
+        tmo_resp = 0;
+
+        /* Read receiver response, timeout 1 s */
+        err = xmsend_wait_response(sio, &resp, tmo_resp);
+        if (err != OK)
+        {
+            return err;
+        }
+
+        /* Update "progress bar" */
+        switch (resp)
+        {
+            case NAK: status = 'N'; break;
+            case ACK: status = '.'; break;
+            case 'C': status = 'C'; break;
+            case CAN: status = '!'; return ERR;
+            default:  status = '?';
+        }
+        write(STDOUT_FILENO, &status, 1);
+
+        /* Move to next block after ACK */
+        if (resp == ACK)
+        {
+            packet.hdr.seq++;
             len -= z;
             buf += z;
         }
     }
 
     /* Send EOT at 1 Hz until ACK or CAN received */
-    while (seq)
-    {
-        if (key_hit)
-            return ERR;
-        if (write(sio, EOT_STR, 1) < 0)
-        {
-            tio_error_print("Write EOT to serial failed");
-            return ERR;
-        }
-        write(STDOUT_FILENO, "|", 1);
-        /* 1s timeout */
-        rc = read_poll(sio, &resp, 1, 1000);
-        if (rc < 0)
-        {
-            tio_error_print("Read from serial failed");
-            return ERR;
-        }
-        else if (rc == 0)
-        {
-            continue;
-        }
-        if (resp == ACK || resp == CAN)
-        {
-            write(STDOUT_FILENO, "\r\n", 2);
-            return (resp == ACK) ? OK : ERR;
-        }
-    }
-    return 0; /* not reached */
+    err = xmsend_repeat_eot_and_wait_response(sio);
+
+    return err;
 }
 
-static int xmodem(int sio, const void *data, size_t len)
+/*
+ * Ymodem: hdr + file + fin
+ */
+static int ymodem_send_1k(int sio, const void *data, size_t len, const char *filename, struct stat *stat)
 {
-    struct xpacket  packet;
-    const uint8_t  *buf = data;
-    char            resp = 0;
-    int             rc, crc;
+    int err;
 
-    /* Drain pending characters from serial line. Insist on the
-     * last drained character being 'C'.
-     */
+    while (1)
+    {
+        char hdr[1024], *p;
+
+        err = ERR;
+        if (strlen(filename) > 977) break; /* hdr block overrun */
+        p  = stpncpy(hdr, filename, 1024) + 1;
+        p += sprintf(p, "%ld %lo %o", len, stat->st_mtime, stat->st_mode);
+
+        if (xmodem_send_1k(sio, hdr,  p - hdr, 0) < 0) break; /* hdr with metadata */
+        if (xmodem_send_1k(sio, data, len,     1) < 0) break; /* xmodem file */
+        if (xmodem_send_1k(sio, "",   1,       0) < 0) break; /* empty hdr = fin */
+        err = OK;                                      break;
+    }
+    return err;
+}
+
+/*
+ * Drain pending characters from serial line.
+ */
+static int xmrecv_drain_pending_chars(int sio)
+{
+    int rc;
+    char resp;
+
     while (true)
     {
         if (key_hit)
-            return -1;
+            return ERR_USER_CAN;
+
         rc = read_poll(sio, &resp, 1, 50);
         if (rc == 0)
         {
-            /* timeout 50 ms
-               resp has last received character beacuse read_poll() doesn't
-               destroy resp value in this case. */
-            if (resp == 'C') break;
-            if (resp == CAN) return ERR;
-            continue;
+            break;
         }
         else if (rc < 0)
         {
             tio_error_print("Read sync from serial failed");
             return ERR;
         }
-    }
-
-    /* Always work with 128b packets */
-    packet.seq  = 1;
-    packet.type = SOH;
-
-    while (len)
-    {
-        size_t  sz, z = 0;
-        char   *from, status;
-
-        /* Build next packet, pad with 0 to full seq */
-        z = min(len, sizeof(packet.data));
-        memcpy(packet.data, buf, z);
-        memset(packet.data + z, 0, sizeof(packet.data) - z);
-        crc = crc16(packet.data, sizeof(packet.data));
-        packet.crc_hi = crc >> 8;
-        packet.crc_lo = crc;
-        packet.nseq = 0xff - packet.seq;
-
-        /* Send packet */
-        from = (char *) &packet;
-        sz =  sizeof(packet);
-        while (sz)
+        if (resp == CAN)
         {
-            if (key_hit)
-                return ERR;
-            if ((rc = write(sio, from, sz)) < 0 )
-            {
-                if (errno ==  EWOULDBLOCK)
-                {
-                    usleep(1000);
-                    continue;
-                }
-                tio_error_print("Write packet to serial failed");
-                return ERR;
-            }
-            from += rc;
-            sz   -= rc;
-        }
-
-        /* Clear response */
-        resp = 0;
-
-        /* Read receiver response, timeout 1 s */
-        for (int n = 0; n < 20; n++)
-        {
-            if (key_hit)
-                return ERR;
-            rc = read_poll(sio, &resp, 1, 50);
-            if (rc < 0)
-            {
-                tio_error_print("Read ack/nak from serial failed");
-                return ERR;
-            }
-            else if (rc > 0)
-            {
-                break;
-            }
-        }
-
-        /* Update "progress bar" */
-        switch (resp)
-        {
-            case NAK: status = 'N'; break;
-            case ACK: status = '.'; break;
-            case 'C': status = 'C'; break;
-            case CAN: status = '!'; return ERR;
-            default:  status = '?';
-        }
-        write(STDOUT_FILENO, &status, 1);
-
-        /* Move to next block after ACK */
-        if (resp == ACK)
-        {
-            packet.seq++;
-            len -= z;
-            buf += z;
-        }
-    }
-
-    /* Send EOT at 1 Hz until ACK or CAN received */
-    while (true)
-    {
-        if (key_hit)
-            return ERR;
-        if (write(sio, EOT_STR, 1) < 0)
-        {
-            tio_error_print("Write EOT to serial failed");
             return ERR;
         }
-        write(STDOUT_FILENO, "|", 1);
-        /* 1s timeout */
-        rc = read_poll(sio, &resp, 1, 1000);
-        if (rc < 0)
-        {
-            tio_error_print("Read from serial failed");
-            return ERR;
-        }
-        else if (rc == 0)
-        {
-            continue;
-        }
-        if (resp == ACK || resp == CAN)
-        {
-            write(STDOUT_FILENO, "\r\n", 2);
-            return (resp == ACK) ? OK : ERR;
-        }
     }
-    return 0; /* not reached */
+    return OK;
 }
 
-int start_receive(int sio)
+/*
+ * Start Receive
+ */
+static int xmrecv_start_receive(int sio)
 {
     int rc;
     struct pollfd fds;
     fds.events = POLLIN;
     fds.fd = sio;
+
     for (int n = 0; n < 20; n++)
     {
         /* Send the 'C' byte until the sender of the file responds with
@@ -387,44 +479,29 @@ int start_receive(int sio)
         if (rc < 0)
         {
             tio_error_print("%s", strerror(errno));
-            return rc;
+            return ERR;
         }
         else if (rc > 0)
         {
             if (fds.revents & POLLIN)
             {
-                return rc;
+                return OK;
             }
             else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
             {
-                return -1;
+                return ERR;
             }
         }
         if (key_hit)
-            return USER_CAN;
+            return ERR_USER_CAN;
     }
-    return rc;
+    return ERR_TMO;
 }
 
-uint16_t update_CRC(uint16_t crc, char data_char)
-{
-    uint8_t data = data_char;
-    crc = crc ^ ((uint16_t)data << 8);
-    for (int ix = 0; (ix < 8); ix++)
-    {
-        if (crc & 0x8000)
-        {
-            crc = (crc << 1) ^ 0x1021;
-        }
-        else
-        {
-            crc <<= 1;
-        }
-    }
-    return crc;
-}
-
-int receive_packet(int sio, struct xpacket packet, int fd)
+/*
+ * Receive a packet
+ */
+static int xmrecv_receive_packet(int sio, struct xpacket_128b *packet, int fd)
 {
     char rxSeq1, rxSeq2 = 0;
     char resp = 0;
@@ -441,7 +518,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     if (rc == 0)
     {
         tio_error_print("Timeout waiting for first seq byte");
-        return ERR;
+        return ERR_TMO;
     }
     else if (rc < 0)
     {
@@ -452,7 +529,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     if (rc == 0)
     {
         tio_error_print("Timeout waiting for second seq byte");
-        return ERR;
+        return ERR_TMO;
     }
     else if (rc < 0)
     {
@@ -460,10 +537,10 @@ int receive_packet(int sio, struct xpacket packet, int fd)
         return ERR_FATAL;
     }
     if (key_hit)
-            return USER_CAN;
+        return ERR_USER_CAN;
 
     /* Read packet Data */
-    for (unsigned ix = 0; (ix < sizeof(packet.data)); ix++)
+    for (unsigned ix = 0; (ix < sizeof(packet->data)); ix++)
     {
         rc = read_poll(sio, &resp, 1, 3000);
         /* If the read times out or fails then fail this packet. */
@@ -476,7 +553,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
                 tio_error_print("Write cancel packet to serial failed");
                 return ERR_FATAL;
             }
-            return ERR;
+            return ERR_TMO;
         }
         else if (rc < 0)
         {
@@ -488,10 +565,10 @@ int receive_packet(int sio, struct xpacket packet, int fd)
             }
             return ERR_FATAL;
         }
-        packet.data[ix] = (uint8_t) resp;
-        calcCrc = update_CRC(calcCrc, resp);
+        packet->data[ix] = (uint8_t) resp;
+        calcCrc = update_crc16(calcCrc, resp);
         if (key_hit)
-            return USER_CAN;
+            return ERR_USER_CAN;
     }
 
     /* Read CRC */
@@ -499,7 +576,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     if (rc == 0)
     {
         tio_error_print("Timeout waiting for first CRC byte");
-        return ERR;
+        return ERR_TMO;
     }
     else if (rc < 0)
     {
@@ -515,7 +592,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     if (rc == 0)
     {
         tio_error_print("Timeout waiting for second CRC byte");
-        return ERR;
+        return ERR_TMO;
     }
     else if (rc < 0)
     {
@@ -528,10 +605,10 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     rxCrc |= uresp16;
 
     if (key_hit)
-        return USER_CAN;
+        return ERR_USER_CAN;
 
     /* At this point in the code, there should not be anything in the receive buffer
-    because the sender has just sent a complete packet and is waiting on a response. */
+       because the sender has just sent a complete packet and is waiting on a response. */
     rc = poll(&fds, 1, 10);
     if (rc < 0)
     {
@@ -564,7 +641,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
     uint8_t seq1 = rxSeq1;
     uint8_t seq2 = rxSeq2;
 
-    if ((calcCrc == rxCrc) && (seq1 == packet.seq - 1) && ((seq1 ^ seq2) == tester))
+    if ((calcCrc == rxCrc) && (seq1 == packet->hdr.seq - 1) && ((seq1 ^ seq2) == tester))
     {
         /* Resend of previously processed packet. */
         rc = write(sio, ACK_STR, 1);
@@ -575,7 +652,7 @@ int receive_packet(int sio, struct xpacket packet, int fd)
         }
         return RX_IGNORE;
     }
-    else if ((calcCrc != rxCrc) || (seq1 != packet.seq) || ((seq1 ^ seq2) != tester))
+    else if ((calcCrc != rxCrc) || (seq1 != packet->hdr.seq) || ((seq1 ^ seq2) != tester))
     {
         /* Fail if the CRC or sequence number is not correct or if the two received
            sequence numbers are not the complement of one another. */
@@ -583,14 +660,14 @@ int receive_packet(int sio, struct xpacket packet, int fd)
         tio_debug_printf("CRC read: %u", rxCrc);
         tio_debug_printf("CRC calculated: %u", calcCrc);
         tio_debug_printf("Seq read: %hhu", rxSeq1);
-        tio_debug_printf("Seq should be: %hhu", packet.seq);
+        tio_debug_printf("Seq should be: %hhu", packet->hdr.seq);
         tio_debug_printf("inv seq: %hhu", rxSeq2);
         return ERR;
     }
     else
     {
         /* The data is good.  Process the packet then ACK it to the sender. */
-        rc = write(fd, packet.data, sizeof(packet.data));
+        rc = write(fd, packet->data, sizeof(packet->data));
         if (rc < 0)
         {
             tio_error_print("Problem writing to file");
@@ -614,48 +691,36 @@ int receive_packet(int sio, struct xpacket packet, int fd)
 
 int xmodem_receive(int sio, int fd)
 {
-    struct xpacket  packet;
+    struct xpacket_128b packet;
     char            resp = 0;
-    int             rc;
+    int             rc, err;
     bool complete = false;
     char status;
 
     /* Drain pending characters from serial line.*/
-    while (true)
+    err = xmrecv_drain_pending_chars(sio);
+    if (err != OK)
     {
-        if (key_hit)
-            return -1;
-        rc = read_poll(sio, &resp, 1, 50);
-        if (rc == 0)
-        {
-            if (resp == CAN) return ERR;
-            break;
-        }
-        else if (rc < 0)
-        {
-            if (rc != USER_CAN)
-            {
-                tio_error_print("Read sync from serial failed");
-            }
-            return ERR;
-        }
+        return err;
     }
 
     /* Always work with 128b packets */
-    packet.seq  = 1;
-    packet.type = SOH;
+    packet.hdr.seq  = 1;
+    packet.hdr.type = SOH;
 
     /* Start Receive*/
-    rc = start_receive(sio);
-    if (rc == 0)
+    err = xmrecv_start_receive(sio);
+    if (err != OK)
     {
-        tio_error_print("Timeout waiting for transfer to start");
-        return ERR;
-    }
-    else if (rc < 0)
-    {
-        tio_error_print("Error starting XMODEM receive");
-        return ERR;
+        if (err == ERR_TMO)
+        {
+            tio_error_print("Timeout waiting for transfer to start");
+        }
+        else
+        {
+            tio_error_print("Error starting XMODEM receive");
+        }
+        return err;
     }
 
     while (!complete)
@@ -665,7 +730,7 @@ int xmodem_receive(int sio, int fd)
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for start of next packet");
-            return ERR;
+            return ERR_TMO;
         }
         else if (rc < 0)
         {
@@ -673,19 +738,19 @@ int xmodem_receive(int sio, int fd)
             return ERR;
         }
         if (key_hit)
-            return USER_CAN;
+            return ERR_USER_CAN;
 
         switch (resp)
         {
             case SOH:
                 /* Start of a packet */
-                rc = receive_packet(sio, packet, fd);
-                if (rc == OK)
+                err = xmrecv_receive_packet(sio, &packet, fd);
+                if (err == OK)
                 {
-                    packet.seq++;
+                    packet.hdr.seq++;
                     status = '.';
                 }
-                else if (rc == ERR)
+                else if (err == ERR || err == ERR_TMO)
                 {
                     rc = write(sio, NAK_STR, 1);
                     if (rc < 0)
@@ -695,12 +760,12 @@ int xmodem_receive(int sio, int fd)
                     }
                     status = 'N';
                 }
-                else if (rc == ERR_FATAL)
+                else if (err == ERR_FATAL)
                 {
                     tio_error_print("Receive cancelled due to fatal error");
                     return ERR;
                 }
-                else if (rc == USER_CAN)
+                else if (err == ERR_USER_CAN)
                 {
                     rc = write(sio, CAN_STR, 1);
                     if (rc < 0)
@@ -708,9 +773,9 @@ int xmodem_receive(int sio, int fd)
                         tio_error_print("Writing cancel to serial failed");
                         return ERR;
                     }
-                    return USER_CAN;
+                    return ERR_USER_CAN;
                 }
-                else if (rc == RX_IGNORE)
+                else if (err == RX_IGNORE)
                 {
                     status = ':';
                 }
@@ -750,7 +815,7 @@ int xmodem_receive(int sio, int fd)
 int xymodem_send(int sio, const char *filename, modem_mode_t mode)
 {
     size_t         len;
-    int            rc, fd;
+    int            err, fd;
     struct stat    stat;
     const uint8_t *buf;
 
@@ -775,29 +840,15 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
     key_hit = 0;
     if (mode == XMODEM_1K)
     {
-        rc = xmodem_1k(sio, buf, len, 1);
+        err = xmodem_send_1k(sio, buf, len, 1);
     }
     else if (mode == XMODEM_CRC)
     {
-        rc = xmodem(sio, buf, len);
+        err = xmodem_send_128b(sio, buf, len);
     }
-    else
+    else /* if (mode == YMODEM) */
     {
-        /* Ymodem: hdr + file + fin */
-        while (true)
-        {
-            char hdr[1024], *p;
-
-            rc = -1;
-            if (strlen(filename) > 977) break; /* hdr block overrun */
-            p  = stpncpy(hdr, filename, 1024) + 1;
-            p += sprintf(p, "%ld %lo %o", len, stat.st_mtime, stat.st_mode);
-
-            if (xmodem_1k(sio, hdr, p - hdr, 0) < 0) break; /* hdr with metadata */
-            if (xmodem_1k(sio, buf, len,     1) < 0) break; /* xmodem file */
-            if (xmodem_1k(sio, "",  1,       0) < 0) break; /* empty hdr = fin */
-            rc = 0;                                  break;
-        }
+        err = ymodem_send_1k(sio, buf, len, filename, &stat);
     }
     key_hit = 0xff;
 
@@ -805,12 +856,12 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
     tcflush(sio, TCIOFLUSH);
     munmap((void *)buf, len);
     close(fd);
-    return rc;
+    return err;
 }
 
 int xymodem_receive(int sio, const char *filename, modem_mode_t mode)
 {
-    int            rc, fd;
+    int            err, fd;
 
     /* Create new file */
     fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0664);
@@ -825,21 +876,21 @@ int xymodem_receive(int sio, const char *filename, modem_mode_t mode)
     if (mode == XMODEM_1K)
     {
         tio_error_print("Not supported");
-        rc = -1;
+        err = ERR;
     }
     else if (mode == XMODEM_CRC)
     {
-        rc = xmodem_receive(sio, fd);
+        err = xmodem_receive(sio, fd);
     }
     else
     {
         tio_error_print("Not supported");
-        rc = -1;
+        err = ERR;
     }
     key_hit = 0xff;
 
     /* Flush serial and release resources */
     tcflush(sio, TCIOFLUSH);
     close(fd);
-    return rc;
+    return err;
 }
