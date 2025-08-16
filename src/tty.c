@@ -767,6 +767,34 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                         }
                         break;
 
+                    case KEY_3:
+                        tio_printf("Send file with XMODEM-SUM");
+                        tio_printf_raw("Enter file name: ");
+                        if (tio_readln())
+                        {
+                            int ret;
+
+                            tio_printf("Sending file '%s'  ", line);
+                            tio_printf("Press any key to abort transfer");
+                            ret = xymodem_send(device_fd, line, XMODEM_SUM);
+                            tio_printf("%s", ret < 0 ? "Aborted" : "Done");
+                        }
+                        break;
+
+                    case KEY_4:
+                        tio_printf("Receive file with XMODEM-SUM");
+                        tio_printf_raw("Enter file name: ");
+                        if (tio_readln())
+                        {
+                            int ret;
+
+                            tio_printf("Ready to receiving file '%s'  ", line);
+                            tio_printf("Press any key to abort transfer");
+                            ret = xymodem_receive(device_fd, line, XMODEM_SUM);
+                            tio_printf("%s", ret < 0 ? "Aborted" : "Done");
+                        }
+                        break;
+
                     default:
                         tio_error_print("Invalid protocol option");
                         break;
@@ -1127,6 +1155,8 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf(" (0) XMODEM-1K send");
                 tio_printf(" (1) XMODEM-CRC send");
                 tio_printf(" (2) XMODEM-CRC receive");
+                tio_printf(" (3) XMODEM-SUM send");
+                tio_printf(" (4) XMODEM-SUM receive");
                 // Process next input character as sub command
                 sub_command = SUBCOMMAND_XMODEM;
                 break;

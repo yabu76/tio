@@ -54,6 +54,11 @@ struct xpkt_ftr_crc
     uint8_t  crc_lo;
 } __attribute__((packed));
 
+struct xpkt_ftr_sum
+{
+    uint8_t  cksum;
+} __attribute__((packed));
+
 struct xpacket_1k
 {
     struct xpkt_hdr hdr;
@@ -61,11 +66,18 @@ struct xpacket_1k
     struct xpkt_ftr_crc ftr;
 } __attribute__((packed));
 
-struct xpacket_128b
+struct xpacket_128b_crc
 {
     struct xpkt_hdr hdr;
     uint8_t  data[128];
     struct xpkt_ftr_crc ftr;
+} __attribute__((packed));
+
+struct xpacket_128b_sum
+{
+    struct xpkt_hdr hdr;
+    uint8_t  data[128];
+    struct xpkt_ftr_sum ftr;
 } __attribute__((packed));
 
 /* See https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks */
@@ -99,6 +111,15 @@ static uint16_t update_crc16(uint16_t crc, char data_char)
         }
     }
     return crc;
+}
+
+static uint8_t calculate_cksum8(const uint8_t *data, uint16_t size)
+{
+    uint8_t sum;
+    for (sum = 0; size > 0; size--) {
+        sum += *data++;
+    }
+    return sum;
 }
 
 /*
@@ -303,40 +324,75 @@ static int xmodem_send_1k(int sio, const void *data, size_t len, int seq)
     return OK;
 }
 
-static int xmodem_send_128b(int sio, const void *data, size_t len)
+static int xmodem_send_128b(int sio, const void *data, size_t len, bool use_crc)
 {
-    struct xpacket_128b packet;
+    union
+    {
+        struct xpacket_128b_crc c;
+        struct xpacket_128b_sum s;
+    } packet;
     const uint8_t  *buf = data;
     char            resp = 0, tmo_resp;
     int             rc, crc, err;
 
     /* Drain pending characters from serial line.
        Insist on the last drained character being 'C' */
-    err = xmsend_initial_handshake(sio, 'C');
+    if (use_crc)
+    {
+        err = xmsend_initial_handshake(sio, 'C');
+    }
+    else
+    {
+        err = xmsend_initial_handshake(sio, NAK);
+    }
     if (err != OK)
         return err;
 
     /* Always work with 128b packets */
-    packet.hdr.seq  = 1;
-    packet.hdr.type = SOH;
+    if (use_crc)
+    {
+        packet.c.hdr.seq  = 1;
+        packet.c.hdr.type = SOH;
+    }
+    else
+    {
+        packet.s.hdr.seq  = 1;
+        packet.s.hdr.type = SOH;
+    }
 
     while (len)
     {
         size_t  sz, z = 0;
         char   *from, status;
 
-        /* Build next packet, pad with 0 to full seq */
-        z = min(len, sizeof(packet.data));
-        memcpy(packet.data, buf, z);
-        memset(packet.data + z, 0, sizeof(packet.data) - z);
-        crc = calculate_crc16(packet.data, sizeof(packet.data));
-        packet.ftr.crc_hi = crc >> 8;
-        packet.ftr.crc_lo = crc;
-        packet.hdr.nseq = 0xff - packet.hdr.seq;
+        if (use_crc)
+        {
+            /* Build next packet, pad with 0 to full seq */
+            z = min(len, sizeof(packet.c.data));
+            memcpy(packet.c.data, buf, z);
+            memset(packet.c.data + z, 0, sizeof(packet.c.data) - z);
+            crc = calculate_crc16(packet.c.data, sizeof(packet.c.data));
+            packet.c.ftr.crc_hi = crc >> 8;
+            packet.c.ftr.crc_lo = crc;
+            packet.c.hdr.nseq = 0xff - packet.c.hdr.seq;
+
+            from = (char *) &packet.c;
+            sz = sizeof(packet.c);
+        }
+        else
+        {
+            /* Build next packet, pad with 0 to full seq */
+            z = min(len, sizeof(packet.s.data));
+            memcpy(packet.s.data, buf, z);
+            memset(packet.s.data + z, 0, sizeof(packet.s.data) - z);
+            packet.s.ftr.cksum = calculate_cksum8(packet.s.data, sizeof(packet.s.data));
+            packet.s.hdr.nseq = 0xff - packet.s.hdr.seq;
+
+            from = (char *) &packet.s;
+            sz = sizeof(packet.s);
+        }
 
         /* Send packet */
-        from = (char *) &packet;
-        sz =  sizeof(packet);
         while (sz)
         {
             if (key_hit)
@@ -380,7 +436,11 @@ static int xmodem_send_128b(int sio, const void *data, size_t len)
         /* Move to next block after ACK */
         if (resp == ACK)
         {
-            packet.hdr.seq++;
+            if (use_crc)
+                packet.c.hdr.seq++;
+            else
+                packet.s.hdr.seq++;
+
             len -= z;
             buf += z;
         }
@@ -450,7 +510,7 @@ static int xmrecv_drain_pending_chars(int sio)
 /*
  * Start Receive
  */
-static int xmrecv_start_receive(int sio)
+static int xmrecv_start_receive(int sio, bool use_crc)
 {
     int rc;
     struct pollfd fds;
@@ -463,7 +523,11 @@ static int xmrecv_start_receive(int sio)
            something.  The start character will be sent once a second for a number of
            seconds.  If nothing is received in that time then return false to indicate
            that the transfer did not start. */
-        rc = write(sio, "C", 1);
+        if (use_crc)
+            rc = write(sio, "C", 1);
+        else
+            rc = write(sio, NAK_STR, 1);
+
         if (rc < 0)
         {
             if (errno ==  EWOULDBLOCK)
@@ -501,7 +565,7 @@ static int xmrecv_start_receive(int sio)
 /*
  * Receive a packet
  */
-static int xmrecv_receive_packet(int sio, struct xpacket_128b *packet, int fd)
+static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int fd, bool use_crc)
 {
     char rxSeq1, rxSeq2 = 0;
     char resp = 0;
@@ -566,43 +630,67 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b *packet, int fd)
             return ERR_FATAL;
         }
         packet->data[ix] = (uint8_t) resp;
-        calcCrc = update_crc16(calcCrc, resp);
+        if (use_crc)
+            calcCrc = update_crc16(calcCrc, resp);
+        else
+            calcCrc = (calcCrc + (uint8_t)resp) & 0xff;
+
         if (key_hit)
             return ERR_USER_CAN;
     }
 
-    /* Read CRC */
-    rc = read_poll(sio, &resp, 1, 3000);
-    if (rc == 0)
+    if (use_crc)
     {
-        tio_error_print("Timeout waiting for first CRC byte");
-        return ERR_TMO;
-    }
-    else if (rc < 0)
-    {
-        tio_error_print("Error reading first CRC byte");
-        return ERR_FATAL;
-    }
+        /* Read CRC */
+        rc = read_poll(sio, &resp, 1, 3000);
+        if (rc == 0)
+        {
+            tio_error_print("Timeout waiting for first CRC byte");
+            return ERR_TMO;
+        }
+        else if (rc < 0)
+        {
+            tio_error_print("Error reading first CRC byte");
+            return ERR_FATAL;
+        }
 
-    uint8_t uresp = resp;
-    uint16_t uresp16 = uresp;
-    rxCrc  = uresp16 << 8;
+        uint8_t uresp = resp;
+        uint16_t uresp16 = uresp;
+        rxCrc  = uresp16 << 8;
 
-    rc = read_poll(sio, &resp, 1, 3000);
-    if (rc == 0)
-    {
-        tio_error_print("Timeout waiting for second CRC byte");
-        return ERR_TMO;
-    }
-    else if (rc < 0)
-    {
-        tio_error_print("Error reading second CRC byte");
-        return ERR_FATAL;
-    }
+        rc = read_poll(sio, &resp, 1, 3000);
+        if (rc == 0)
+        {
+            tio_error_print("Timeout waiting for second CRC byte");
+            return ERR_TMO;
+        }
+        else if (rc < 0)
+        {
+            tio_error_print("Error reading second CRC byte");
+            return ERR_FATAL;
+        }
 
-    uresp = resp;
-    uresp16 = uresp;
-    rxCrc |= uresp16;
+        uresp = resp;
+        uresp16 = uresp;
+        rxCrc |= uresp16;
+    }
+    else
+    {
+        /* Read checksum */
+        rc = read_poll(sio, &resp, 1, 3000);
+        if (rc == 0)
+        {
+            tio_error_print("Timeout waiting for checksum byte");
+            return ERR_TMO;
+        }
+        else if (rc < 0)
+        {
+            tio_error_print("Error reading checksum byte");
+            return ERR_FATAL;
+        }
+
+        rxCrc = (uint8_t)resp;
+    }
 
     if (key_hit)
         return ERR_USER_CAN;
@@ -689,9 +777,9 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b *packet, int fd)
     return OK;
 }
 
-int xmodem_receive(int sio, int fd)
+int xmodem_receive(int sio, int fd, bool use_crc)
 {
-    struct xpacket_128b packet;
+    struct xpacket_128b_crc packet;
     char            resp = 0;
     int             rc, err;
     bool complete = false;
@@ -709,7 +797,7 @@ int xmodem_receive(int sio, int fd)
     packet.hdr.type = SOH;
 
     /* Start Receive*/
-    err = xmrecv_start_receive(sio);
+    err = xmrecv_start_receive(sio, use_crc);
     if (err != OK)
     {
         if (err == ERR_TMO)
@@ -744,7 +832,7 @@ int xmodem_receive(int sio, int fd)
         {
             case SOH:
                 /* Start of a packet */
-                err = xmrecv_receive_packet(sio, &packet, fd);
+                err = xmrecv_receive_packet(sio, &packet, fd, use_crc);
                 if (err == OK)
                 {
                     packet.hdr.seq++;
@@ -844,7 +932,11 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
     }
     else if (mode == XMODEM_CRC)
     {
-        err = xmodem_send_128b(sio, buf, len);
+        err = xmodem_send_128b(sio, buf, len, /* use_crc= */ true);
+    }
+    else if (mode == XMODEM_SUM)
+    {
+        err = xmodem_send_128b(sio, buf, len, /* use_crc= */ false);
     }
     else /* if (mode == YMODEM) */
     {
@@ -880,7 +972,11 @@ int xymodem_receive(int sio, const char *filename, modem_mode_t mode)
     }
     else if (mode == XMODEM_CRC)
     {
-        err = xmodem_receive(sio, fd);
+        err = xmodem_receive(sio, fd, /* use_crc= */ true);
+    }
+    else if (mode == XMODEM_SUM)
+    {
+        err = xmodem_receive(sio, fd, /* use_crc= */ false);
     }
     else
     {
