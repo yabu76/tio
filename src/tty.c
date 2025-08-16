@@ -2401,7 +2401,7 @@ void tty_wait_for_device(void)
                 // Happens when port unpluged
                 if (errno == EACCES)
                 {
-                    goto error;
+                    break;
                 }
 #elif defined(__APPLE__)
                 if (errno == EBADF)
