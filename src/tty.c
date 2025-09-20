@@ -283,15 +283,14 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
             }
             bytes_written += retval;
 
+            fsync(fd);
+            tcdrain(fd);
+
             if (option.output_line_delay && *(unsigned char*)buffer == '\n')
             {
                 delay(option.output_line_delay);
             }
-
-            fsync(fd);
-            tcdrain(fd);
-
-            if (option.output_delay)
+            else if (option.output_delay)
             {
                 delay(option.output_delay);
             }
