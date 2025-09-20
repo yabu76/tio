@@ -259,22 +259,23 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
 {
     ssize_t retval = 0, bytes_written = 0;
     size_t i;
+    unsigned char *cbuf = (unsigned char *)buffer;
 
     if (option.map_o_ltu)
     {
         // Convert lower case to upper case
-        for (i = 0; i<count; i++)
+        for (i = 0; i < count; i++)
         {
-            *((unsigned char*)buffer+i) = toupper(*((unsigned char*)buffer+i));
+            cbuf[i] = toupper(cbuf[i]);
         }
     }
 
     if (option.output_delay || option.output_line_delay)
     {
         // Write byte by byte with output delay
-        for (i=0; i<count; i++)
+        for (i = 0; i < count; i++)
         {
-            retval = write(fd, buffer, 1);
+            retval = write(fd, &cbuf[i], 1);
             if (retval < 0)
             {
                 // Error
@@ -286,7 +287,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
             fsync(fd);
             tcdrain(fd);
 
-            if (option.output_line_delay && *(unsigned char*)buffer == '\n')
+            if (option.output_line_delay && cbuf[i] == '\n')
             {
                 delay(option.output_line_delay);
             }
