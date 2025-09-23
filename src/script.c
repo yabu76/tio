@@ -286,6 +286,23 @@ static int api_write(lua_State *L)
     return 1;
 }
 
+// lua: tio.twrite(string)
+static int api_twrite(lua_State *L)
+{
+    size_t len = 0;
+    const char *string = luaL_checklstring(L, 1, &len);
+
+    for (; len > 0; --len, string++)
+    {
+        forward_to_tty(device_fd, *string);
+    }
+    tty_sync(device_fd);
+
+    lua_getglobal(L, "tio");
+
+    return 1;
+}
+
 // lua: tio.read(size, timeout)
 static int api_read(lua_State *L)
 {
@@ -462,6 +479,7 @@ static const struct luaL_Reg tio_lib[] =
     { "line_set", line_set},
     { "send", api_send},
     { "write", api_write},
+    { "twrite", api_twrite},
     { "read", api_read},
     { "readline", api_readline},
     { "ttysearch", api_ttysearch},
