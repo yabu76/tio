@@ -549,7 +549,15 @@ void script_run(int fd, const char *script_filename)
     if (script_filename != NULL)
     {
         tio_printf("Running script %s", script_filename);
-        script_file_run(L, script_filename);
+        // if filename starts with '!', do filename's remain parts as lua commands.
+        if (strlen(script_filename) >= 1 && script_filename[0] == '!')
+        {
+            script_buffer_run(L, &script_filename[1]);
+        }
+        else
+        {
+            script_file_run(L, script_filename);
+        }
     }
     else if (option.script_filename != NULL)
     {
