@@ -44,6 +44,7 @@ enum opt_t
     OPT_LOG_DIRECTORY,
     OPT_LOG_STRIP,
     OPT_LOG_APPEND,
+    OPT_OUTPUT_LINE_DELAY_CHAR,
     OPT_LINE_PULSE_DURATION,
     OPT_RS485,
     OPT_RS485_CONFIG,
@@ -73,6 +74,7 @@ struct option_t option =
     .parity = PARITY_NONE,
     .output_delay = 0,
     .output_line_delay = 0,
+    .output_line_delay_char = '\n',
     .dtr_pulse_duration = 100,
     .rts_pulse_duration = 100,
     .cts_pulse_duration = 100,
@@ -144,6 +146,7 @@ void option_print_help(char *argv[])
     printf("  -p, --parity odd|even|none|mark|space  Parity (default: none)\n");
     printf("  -o, --output-delay <ms>                Output character delay (default: 0)\n");
     printf("  -O, --output-line-delay <ms>           Output line delay (default: 0)\n");
+    printf("      --output-line-delay-char cr|lf     Output line delay character(default: lf)\n");
     printf("      --line-pulse-duration <duration>   Set line pulse duration\n");
     printf("  -a, --auto-connect new|latest|direct   Automatic connect strategy (default: direct)\n");
     printf("      --exclude-devices <pattern>        Exclude devices by pattern\n");
@@ -504,6 +507,25 @@ void option_parse_auto_connect(const char *arg, auto_connect_t *auto_connect)
     }
 }
 
+void option_parse_output_line_delay_char(const char *arg)
+{
+    assert(arg != NULL);
+
+    if (strcmp("cr", arg) == 0)
+    {
+        option.output_line_delay_char = '\r';
+    }
+    else if (strcmp("lf", arg) == 0)
+    {
+        option.output_line_delay_char = '\n';
+    }
+    else
+    {
+        tio_error_print("Invalid char '%s'", arg);
+        exit(EXIT_FAILURE);
+    }
+}
+
 void option_parse_line_pulse_duration(const char *arg)
 {
     bool token_found = true;
@@ -833,6 +855,7 @@ void options_print()
     tio_printf(" Timestamp timeout: %u", option.timestamp_timeout);
     tio_printf(" Output delay: %d", option.output_delay);
     tio_printf(" Output line delay: %d", option.output_line_delay);
+    tio_printf(" Output line delay char: %s", option.output_line_delay_char == '\r' ? "cr" : "lf");
     tio_printf(" Automatic connect strategy: %s", option_auto_connect_state_to_string(option.auto_connect));
     tio_printf(" Automatic reconnect: %s", option.no_reconnect ? "true" : "false");
     // clang-format off
@@ -903,6 +926,7 @@ void options_parse(int argc, char *argv[])
             {"parity",               required_argument, 0, 'p'                     },
             {"output-delay",         required_argument, 0, 'o'                     },
             {"output-line-delay" ,   required_argument, 0, 'O'                     },
+            {"output-line-delay-char", required_argument, 0, OPT_OUTPUT_LINE_DELAY_CHAR},
             {"line-pulse-duration",  required_argument, 0, OPT_LINE_PULSE_DURATION },
             {"auto-connect",         required_argument, 0, 'a'                     },
             {"exclude-devices",      required_argument, 0, OPT_EXCLUDE_DEVICES     },
@@ -987,6 +1011,10 @@ void options_parse(int argc, char *argv[])
 
             case 'O':
                 option_string_to_integer(optarg, &option.output_line_delay, "output line delay", 0, INT_MAX);
+                break;
+
+            case OPT_OUTPUT_LINE_DELAY_CHAR:
+                option_parse_output_line_delay_char(optarg);
                 break;
 
             case OPT_LINE_PULSE_DURATION:

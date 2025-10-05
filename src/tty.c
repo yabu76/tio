@@ -287,7 +287,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
             fsync(fd);
             tcdrain(fd);
 
-            if (option.output_line_delay && cbuf[i] == '\n')
+            if (option.output_line_delay && cbuf[i] == option.output_line_delay_char)
             {
                 delay(option.output_line_delay);
             }
