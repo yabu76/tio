@@ -158,7 +158,7 @@ OPTIONS
 
        -m, --map <flags>
 
-              Map (replace, translate) characters on input to the serial device or output from the serial device. The following mapping flags are supported:
+              Map (replace, translate) characters on input from the serial device or output to the serial device. The following mapping flags are supported:
 
               ICRNL       Map CR to NL on input (unless IGNCR is set)
 
