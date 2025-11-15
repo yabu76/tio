@@ -325,12 +325,7 @@ static int api_twrite(lua_State *L)
 static int api_read(lua_State *L)
 {
     int size = luaL_checkinteger(L, 1);
-    int timeout = lua_tointeger(L, 2);
-
-    if (timeout == 0)
-    {
-        timeout = -1; // Wait forever
-    }
+    int timeout = luaL_optinteger(L, 2, -1); // ms, negative value means forever.
 
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
@@ -367,14 +362,9 @@ static int api_read(lua_State *L)
 // lua: string = tio.readline(timeout)
 static int api_readline(lua_State *L)
 {
-    int timeout = lua_tointeger(L, 1); //ms
+    int timeout = luaL_optinteger(L, 1, -1); // ms, negative value means forever.
     luaL_Buffer b;
     char ch;
-
-    if (timeout == 0)
-    {
-        timeout = -1; // Wait forever
-    }
 
     luaL_buffinit(L, &b);
     luaL_prepbuffer(&b);
