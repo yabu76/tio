@@ -1078,16 +1078,9 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             case KEY_R:
                 /* Run script */
                 tio_printf("Run Lua script");
-                if (tio_subcmd_readln("Enter file name: "))
-                {
-                    clear_line();
-                    script_run(device_fd, line);
-                }
-                else
-                {
-                    clear_line();
-                    script_run(device_fd, NULL);
-                }
+                tio_subcmd_readln("Enter file name or \"!\" lua commands or \"@\" direction to interpreter: ");
+                clear_line();
+                script_run(device_fd, line);
                 break;
 
             case KEY_SHIFT_R:
@@ -2685,7 +2678,7 @@ int tty_connect(void)
     /* Manage script activation */
     if (option.script_run != SCRIPT_RUN_NEVER)
     {
-        script_run(device_fd, NULL);
+        script_run_as_specified_by_options(device_fd);
 
         if (option.script_run == SCRIPT_RUN_ONCE)
         {

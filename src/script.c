@@ -29,6 +29,7 @@
 #include <lualib.h>
 #include <sys/ioctl.h>
 #include <ctype.h>
+#include <assert.h>
 #include "misc.h"
 #include "print.h"
 #include "options.h"
@@ -44,6 +45,7 @@
 #define READ_LINE_SIZE 4096 // read_line buffer length
 
 static int device_fd;
+static lua_State *script_interp = NULL;
 
 // clang-format off
 static char script_init[] =
@@ -542,14 +544,26 @@ static int luaopen_tio(lua_State *L)
 }
 #endif
 
-void script_run(int fd, const char *script_filename)
+static lua_State *script_interp_new(void)
 {
     lua_State *L;
 
-    device_fd = fd;
+    if (script_interp != NULL) {
+        lua_close(script_interp);
+    }
 
     L = luaL_newstate();
+    script_interp = L;
+
+    if (L == NULL) {
+        tio_error_printf("Can't allocate script buffer");
+        return NULL;
+    }
+
+    lua_gc(L, LUA_GCSTOP);
     luaL_openlibs(L);
+    lua_gc(L, LUA_GCRESTART);
+    lua_gc(L, LUA_GCGEN, 0, 0);
 
 #if LUA_VERSION_NUM >= 502
     luaL_requiref(L, "tio", luaopen_tio, 1);
@@ -564,31 +578,94 @@ void script_run(int fd, const char *script_filename)
     // Initialize globals
     script_set_globals(L);
 
-    if (script_filename != NULL)
+    return L;
+}
+
+void script_run(int fd, const char *script_filename)
+{
+    static bool doopt_by_nul = true;
+    device_fd = fd;
+
+    assert(script_filename != NULL);
+
+    if (script_interp == NULL)
     {
-        tio_printf("Running script %s", script_filename);
-        // if filename starts with '!', do filename's remain parts as lua commands.
-        if (strlen(script_filename) >= 1 && script_filename[0] == '!')
+        if (script_interp_new() == NULL)
+            return;
+    }
+
+    if (script_filename[0] == '\0')
+    {
+        if (doopt_by_nul)
         {
-            script_buffer_run(L, &script_filename[1]);
+            script_run_as_specified_by_options(fd);
+        }
+        return;
+    }
+    else if (script_filename[0] == '@')
+    {
+        if (strcmp(script_filename, "@new") == 0)
+        {
+            tio_printf("Restart interpreter");
+            script_interp_new();
+        }
+        else if (strcmp(script_filename, "@doopt") == 0)
+        {
+            script_run_as_specified_by_options(fd);
+        }
+        else if (strcmp(script_filename, "@nuldo=opt") == 0)
+        {
+            doopt_by_nul = true;
+        }
+        else if (strcmp(script_filename, "@nuldo=none") == 0)
+        {
+            doopt_by_nul = false;
         }
         else
         {
-            script_file_run(L, script_filename);
+            tio_printf("Unknown command");
         }
+        return;
     }
-    else if (option.script_filename != NULL)
+    else
+    {
+        // if filename starts with '!', do filename's remain parts as lua commands.
+        tio_printf("Running script %s", script_filename);
+        if (script_filename[0] == '!')
+        {
+            script_buffer_run(script_interp, &script_filename[1]);
+        }
+        else
+        {
+            script_file_run(script_interp, script_filename);
+        }
+        return;
+    }
+}
+
+void script_run_as_specified_by_options(int fd)
+{
+    device_fd = fd;
+
+    if (script_interp == NULL)
+    {
+        if (script_interp_new() == NULL)
+            return;
+    }
+
+    if (option.script_filename != NULL)
     {
         tio_printf("Running script %s", option.script_filename);
-        script_file_run(L, option.script_filename);
+        if (script_interp_new())
+            script_file_run(script_interp, option.script_filename);
+
     }
     else if (option.script != NULL)
     {
         tio_printf("Running script");
-        script_buffer_run(L, option.script);
+        if (script_interp_new())
+            script_buffer_run(script_interp, option.script);
     }
-
-    lua_close(L);
 }
 
 const char *script_run_state_to_string(script_run_t state)

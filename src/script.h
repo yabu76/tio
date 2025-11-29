@@ -30,4 +30,5 @@ typedef enum
 } script_run_t;
 
 void script_run(int fd, const char *script_filename);
+void script_run_as_specified_by_options(int fd);
 const char *script_run_state_to_string(script_run_t state);
