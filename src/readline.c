@@ -139,6 +139,7 @@ static void readline_input_left_bracket(void)
     }
     else
     {
+        readline_input_char('[');
         rl_escape = 0;
     }
 }
