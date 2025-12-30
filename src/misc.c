@@ -111,6 +111,40 @@ int read_poll(int fd, void *data, size_t len, int timeout)
     return 0;
 }
 
+ssize_t write_poll(int fd, void *data, size_t len, int timeout)
+{
+    struct pollfd fds;
+    ssize_t ret = 0;
+
+    fds.events = POLLOUT;
+    fds.fd = fd;
+
+    /* Wait data available */
+    ret = poll(&fds, 1, timeout);
+    if (ret < 0)
+    {
+        tio_error_print("%s", strerror(errno));
+        return ret;
+    }
+    else if (ret > 0)
+    {
+        if (fds.revents & POLLOUT)
+        {
+            // Ready to write
+            // return value should not be 0
+            return write(fd, data, len);
+        }
+        else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
+        {
+            return -1;
+        }
+    }
+
+    /* Timeout */
+    return 0;
+}
+
+
 // Function to calculate djb2 hash of string
 unsigned long djb2_hash(const unsigned char *str)
 {

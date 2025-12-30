@@ -24,6 +24,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#define WRITE_POLL_FOREVER (-1)
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
 void delay(long ms);
@@ -32,6 +33,7 @@ bool regex_match(const char *string, const char *pattern);
 unsigned long djb2_hash(const unsigned char *str);
 void *base62_encode(unsigned long num, char *output);
 int read_poll(int fd, void *data, size_t len, int timeout);
+ssize_t write_poll(int fd, const void *data, size_t len, int timeout);
 double get_current_time(void);
 bool match_patterns(const char *string, const char *patterns);
 int execute_shell_command(int fd, const char *command);

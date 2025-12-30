@@ -238,28 +238,43 @@ inline static unsigned char char_to_nibble(char c)
 
 void tty_sync(int fd)
 {
+    /* If output_delay is valid, tty_buffer should be already empty.
+     * So this function doesn't consider output_delay options. */
     ssize_t count;
+    size_t remain = tty_buffer_count;
+    char *cp = tty_buffer;
 
-    while (tty_buffer_count > 0)
+    while (remain > 0)
     {
-        count = write(fd, tty_buffer, tty_buffer_count);
+        count = write_poll(fd, cp, remain, WRITE_POLL_FOREVER);
         if (count < 0)
         {
             // Error
             tio_debug_printf("Write error while flushing tty buffer (%s)", strerror(errno));
             break;
         }
-        tty_buffer_count -= count;
-        fsync(fd);
-        tcdrain(fd);
+        cp += count;
+        remain -= count;
+
+        /* Reduce the number of additional sends */
+        if (remain > 0)
+        {
+            int estimated_sendtime_us = (int)((int64_t)count * 10 * 1000 * 1000 / option.baudrate);
+            if (estimated_sendtime_us > 300 * 1000)
+                usleep(300 * 1000);
+            else
+                usleep(estimated_sendtime_us);
+        }
     }
+    fsync(fd);
+    tcdrain(fd);
 
     // Reset
     tty_buffer_write_ptr = tty_buffer;
     tty_buffer_count = 0;
 }
 
-ssize_t tty_write(int fd, const void *buffer, size_t count)
+ssize_t tty_write(int fd, void *buffer, size_t count)
 {
     ssize_t retval = 0, bytes_written = 0;
     size_t i;
@@ -279,7 +294,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
         // Write byte by byte with output delay
         for (i = 0; i < count; i++)
         {
-            retval = write(fd, &cbuf[i], 1);
+            retval = write_poll(fd, &cbuf[i], 1, WRITE_POLL_FOREVER);
             if (retval < 0)
             {
                 // Error
@@ -2526,7 +2541,7 @@ void forward_to_tty(int fd, char output_char)
     /* Map newline character */
     if ((output_char == '\n' || output_char == '\r') && (option.map_o_nl_crnl))
     {
-        const char *crlf = "\r\n";
+        char crlf[] = "\r\n";
 
         optional_local_echo(crlf[0]);
         optional_local_echo(crlf[1]);
@@ -2730,7 +2745,7 @@ int tty_connect(void)
             else if (ret > 0)
             {
                 // Forward to tty device
-                ret = write(device_fd, &input_char, 1);
+                ret = write_poll(device_fd, &input_char, 1, WRITE_POLL_FOREVER);
                 if (ret < 0)
                 {
                     tio_error_printf("Could not write to serial device (%s)", strerror(errno));
@@ -2743,6 +2758,7 @@ int tty_connect(void)
                 break;
             }
         }
+        tty_sync(device_fd);
     }
 
     /* Manage script activation */

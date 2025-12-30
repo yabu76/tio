@@ -312,7 +312,7 @@ static int api_write(lua_State *L)
 
     do
     {
-        ret = write(device_fd, string, len);
+        ret = write_poll(device_fd, string, len, WRITE_POLL_FOREVER);
         if (ret < 0)
             return luaL_error(L, "%s", strerror(errno));
 
