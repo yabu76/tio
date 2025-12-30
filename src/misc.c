@@ -288,7 +288,7 @@ int execute_shell_command(int fd, const char *command)
         close(pipe_fd[WRITE_END]);
         while ( (bytes = read(pipe_fd[READ_END], buf, sizeof(buf))) > 0)
         {
-            if (tty_write(fd, buf, bytes) <= 0)
+            if (tty_write(fd, buf, bytes) < 0)
             {
                 tio_warning_printf("Could not write to tty device");
             }

@@ -299,7 +299,7 @@ ssize_t tty_write(int fd, void *buffer, size_t count)
             {
                 // Error
                 tio_debug_printf("Write error (%s)", strerror(errno));
-                break;
+                return retval;
             }
             bytes_written += retval;
 
