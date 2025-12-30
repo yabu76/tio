@@ -42,11 +42,11 @@ typedef struct readline_s
 void print_line(readline_t *rl)
 {
     clear_line();
-    print("%s%s", rl->prompt, rl->line);
-    print("\r"); // Move the cursor back to the beginning
+    printf("%s%s", rl->prompt, rl->line);
+    printf("\r"); // Move the cursor back to the beginning
     for (int i = 0; i < rl->prompt_length + rl->cursor_pos; ++i)
     {
-        print("\x1b[C"); // Move the cursor right
+        printf("\x1b[C"); // Move the cursor right
     }
 }
 

@@ -256,5 +256,5 @@ int execute_shell_command(int fd, const char *command)
 
 void clear_line()
 {
-    print("\r\033[K");
+    printf("\r\033[K");
 }
