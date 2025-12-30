@@ -230,12 +230,22 @@ bool match_patterns(const char *string, const char *patterns)
     return false;
 }
 
-// Function that forks subprocess, redirects its stdin and stdout to the
+// Function that forks subprocess, redirects its stdout and stderr to the
 // specified filedescriptor, and runs command.
 int execute_shell_command(int fd, const char *command)
 {
+#define READ_END 0
+#define WRITE_END 1
     pid_t pid;
     int status;
+    int pipe_fd[2];
+
+    // Create Pipes
+    if (pipe(pipe_fd) == -1)
+    {
+        tio_error_print("pipe() failed (%s)", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     // Fork a child process
     pid = fork();
@@ -252,7 +262,8 @@ int execute_shell_command(int fd, const char *command)
         tio_printf("Executing shell command '%s'", command);
 
         // Redirect stdout and stderr to the file descriptor
-        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
+        close(pipe_fd[READ_END]);
+        if (dup2(pipe_fd[WRITE_END], STDOUT_FILENO) == -1 || dup2(pipe_fd[WRITE_END], STDERR_FILENO) == -1)
         {
             tio_error_print("dup2() failed (%s)", strerror(errno));
             exit(EXIT_FAILURE);
@@ -262,6 +273,7 @@ int execute_shell_command(int fd, const char *command)
         execl("/bin/sh", "sh", "-c", command, (char *)NULL);
 
         // If execlp() returns, it means an error occurred
+        close(pipe_fd[WRITE_END]);
         perror("execlp");
         tio_error_print("execlp() failed (%s)", strerror(errno));
         exit(EXIT_FAILURE);
@@ -269,6 +281,20 @@ int execute_shell_command(int fd, const char *command)
     else
     {
         // Parent process
+        char buf[BUFSIZ];
+        int bytes;
+
+        // Read pipe and transfer to tty device.
+        close(pipe_fd[WRITE_END]);
+        while ( (bytes = read(pipe_fd[READ_END], buf, sizeof(buf))) > 0)
+        {
+            if (tty_write(fd, buf, bytes) <= 0)
+            {
+                tio_warning_printf("Could not write to tty device");
+            }
+        }
+        tty_sync(fd);
+        close(pipe_fd[READ_END]);
 
         // Wait for the child process to finish
         waitpid(pid, &status, 0);
@@ -284,7 +310,6 @@ int execute_shell_command(int fd, const char *command)
             return -1;
         }
     }
-
     return 0;
 }
 
