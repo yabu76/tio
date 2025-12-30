@@ -44,7 +44,7 @@
 #define MAX_BUFFER_SIZE 2000 // Maximum size of circular buffer
 #define READ_LINE_SIZE 4096 // read_line buffer length
 
-static int device_fd;
+static int device_fd = 0;
 static lua_State *script_interp = NULL;
 
 // clang-format off
@@ -203,6 +203,11 @@ static int line_set(lua_State *L)
     int cd = lua_tointeger(L, 5);
     int ri = lua_tointeger(L, 6);
 
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
     if (dtr != -1)
     {
         line_config[0].mask = TIOCM_DTR;
@@ -252,6 +257,11 @@ static int api_send(lua_State *L)
     int protocol = luaL_checkinteger(L, 2);
     int ret;
 
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
     if (file == NULL)
     {
         return 0;
@@ -295,6 +305,11 @@ static int api_write(lua_State *L)
     ssize_t ret;
     int attempts = 100;
 
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
     do
     {
         ret = write(device_fd, string, len);
@@ -322,6 +337,11 @@ static int api_twrite(lua_State *L)
     size_t len = 0;
     const char *string = luaL_checklstring(L, 1, &len);
 
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
     for (; len > 0; --len, string++)
     {
         forward_to_tty(device_fd, *string);
@@ -338,6 +358,11 @@ static int api_read(lua_State *L)
 {
     int size = luaL_checkinteger(L, 1);
     int timeout = luaL_optinteger(L, 2, -1); // ms, negative value means forever.
+
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
 
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
@@ -377,6 +402,11 @@ static int api_readline(lua_State *L)
     int timeout = luaL_optinteger(L, 1, -1); // ms, negative value means forever.
     luaL_Buffer b;
     char ch;
+
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
 
     luaL_buffinit(L, &b);
     luaL_prepbuffer(&b);
@@ -581,24 +611,36 @@ static lua_State *script_interp_new(void)
     return L;
 }
 
-void script_run(int fd, const char *script_filename)
+void script_device_bind(int fd)
+{
+    device_fd = fd;
+}
+
+void script_device_unbind(void)
+{
+    device_fd = 0;
+}
+
+void script_do_line(const char *script_line)
+{
+    assert(script_line != NULL);
+    assert(script_interp != NULL);
+
+    script_buffer_run(script_interp, script_line);
+}
+
+void script_run(const char *script_filename)
 {
     static bool doopt_by_nul = true;
-    device_fd = fd;
 
     assert(script_filename != NULL);
-
-    if (script_interp == NULL)
-    {
-        if (script_interp_new() == NULL)
-            return;
-    }
+    assert(script_interp != NULL);
 
     if (script_filename[0] == '\0')
     {
         if (doopt_by_nul)
         {
-            script_run_as_specified_by_options(fd);
+            script_run_as_specified_by_options();
         }
         return;
     }
@@ -611,7 +653,7 @@ void script_run(int fd, const char *script_filename)
         }
         else if (strcmp(script_filename, "@doopt") == 0)
         {
-            script_run_as_specified_by_options(fd);
+            script_run_as_specified_by_options();
         }
         else if (strcmp(script_filename, "@nuldo=opt") == 0)
         {
@@ -643,15 +685,9 @@ void script_run(int fd, const char *script_filename)
     }
 }
 
-void script_run_as_specified_by_options(int fd)
+void script_run_as_specified_by_options(void)
 {
-    device_fd = fd;
-
-    if (script_interp == NULL)
-    {
-        if (script_interp_new() == NULL)
-            return;
-    }
+    assert(script_interp != NULL);
 
     if (option.script_filename != NULL)
     {
@@ -680,5 +716,14 @@ const char *script_run_state_to_string(script_run_t state)
             return "never";
         default:
             return "Unknown";
+    }
+}
+
+void script_interp_init(void)
+{
+    if (script_interp_new() == NULL)
+    {
+        tio_error_printf("Could not start script interpreter.");
+        exit(EXIT_FAILURE);
     }
 }

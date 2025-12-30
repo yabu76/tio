@@ -123,6 +123,12 @@ int main(int argc, char *argv[])
         socket_configure();
     }
 
+    /* Script interpreter init */
+    script_interp_init();
+
+    /* Initialize tty module once on program start */
+    tty_init();
+
     /* Spawn input handling into separate thread */
     tty_input_thread_create();
 

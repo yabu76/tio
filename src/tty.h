@@ -76,6 +76,7 @@ void stdout_configure(void);
 void stdin_configure(void);
 void tty_configure(void);
 void tty_reconfigure(void);
+void tty_init(void);
 int tty_connect(void);
 void tty_wait_for_device(void);
 void list_serial_devices(void);

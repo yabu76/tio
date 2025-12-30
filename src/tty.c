@@ -147,6 +147,8 @@ typedef enum
     SUBCOMMAND_MAP,
 } sub_command_t;
 
+#define MLINE_MAX 4096
+
 // clang-format off
 const char random_array[] =
 {
@@ -183,7 +185,7 @@ static char *tty_buffer_write_ptr = tty_buffer;
 static pthread_t thread;
 static int pipefd[2];
 static pthread_mutex_t mutex_input_ready = PTHREAD_MUTEX_INITIALIZER;
-static char line[PATH_MAX];
+static char line[PATH_MAX], mline[MLINE_MAX];
 static size_t listing_device_name_length_max = 0;
 static readline_t *readline_ctx = NULL;
 static readline_t *subcmd_readline_ctx = NULL;
@@ -593,7 +595,9 @@ static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int d
 
 static int tio_subcmd_readln(const char *title_prompt)
 {
-    tio_printf_raw("%s\r\n", title_prompt);
+    if (title_prompt && (title_prompt[0] != '\0')) {
+        tio_printf_raw("%s\r\n", title_prompt);
+    }
     readline_prompt_for_input(subcmd_readline_ctx);
 
     /* Read line with line edit and history. */
@@ -658,6 +662,50 @@ static void mappings_print(void)
         tio_printf(" Mappings: none");
     }
     // clang-format on
+}
+
+static void handle_script_repl(void)
+{
+    bool local_echo_bkup = option.local_echo;
+    int line_len;
+    int mline_len = 0;
+
+    option.local_echo = true;
+    tio_printf("Enter Lua REPL mode (@exit to exit)");
+
+    strcpy(mline, "");
+    while (true)
+    {
+        tio_subcmd_readln("");
+        if (strcmp(line, "@exit") == 0)
+            break;
+        line_len = strlen(line);
+
+        if (line_len > 0)
+        {
+            if (mline_len + line_len + 1 > MLINE_MAX)
+            {
+                tio_printf("Too long lines. The size should be lesser then %d bytes", MLINE_MAX);
+                strcpy(mline, "");
+                mline_len = 0;
+                continue;
+            }
+
+            strcat(&mline[mline_len], line);
+            mline_len += line_len;
+
+            if (mline_len > 0 && mline[mline_len - 1] == '\\')
+            {
+                mline[mline_len - 1] = '\n';
+                continue;
+            }
+        }
+        script_do_line(mline);
+        strcpy(mline, "");
+        mline_len = 0;
+    }
+
+    option.local_echo = local_echo_bkup;
 }
 
 void handle_command_sequence(char input_char, char *output_char, bool *forward)
@@ -1079,8 +1127,15 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 /* Run script */
                 tio_printf("Run Lua script");
                 tio_subcmd_readln("Enter file name or \"!\" lua commands or \"@\" direction to interpreter: ");
-                clear_line();
-                script_run(device_fd, line);
+                if (strcmp(line, "@repl") == 0)
+                {
+                    handle_script_repl();
+                }
+                else
+                {
+                    clear_line();
+                    script_run(line);
+                }
                 break;
 
             case KEY_SHIFT_R:
@@ -2545,6 +2600,21 @@ void forward_to_tty(int fd, char output_char)
     }
 }
 
+void tty_init(void)
+{
+    // Initialize readline like history
+    readline_ctx = readline_create();
+    subcmd_readline_ctx = readline_create();
+    if (readline_ctx == NULL || subcmd_readline_ctx == NULL)
+    {
+        tio_error_printf("Could not allocate readline buffer.");
+        exit(EXIT_FAILURE);
+    }
+    readline_set_prompt(readline_ctx, "> ");
+    readline_set_prompt(subcmd_readline_ctx, ">> ");
+
+}
+
 int tty_connect(void)
 {
     fd_set rdfs;           /* Read file descriptor set */
@@ -2676,9 +2746,11 @@ int tty_connect(void)
     }
 
     /* Manage script activation */
+    script_device_bind(device_fd);
+
     if (option.script_run != SCRIPT_RUN_NEVER)
     {
-        script_run_as_specified_by_options(device_fd);
+        script_run_as_specified_by_options();
 
         if (option.script_run == SCRIPT_RUN_ONCE)
         {
@@ -2697,17 +2769,6 @@ int tty_connect(void)
         status = execute_shell_command(device_fd, option.exec);
         exit(status);
     }
-
-    // Initialize readline like history
-    readline_ctx = readline_create();
-    subcmd_readline_ctx = readline_create();
-    if (readline_ctx == NULL || subcmd_readline_ctx == NULL)
-    {
-        tio_error_printf("Could not allocate readline buffer.");
-        exit(EXIT_FAILURE);
-    }
-    readline_set_prompt(readline_ctx, "> ");
-    readline_set_prompt(subcmd_readline_ctx, ">> ");
 
     /* Input loop */
     while (true)
@@ -3035,6 +3096,7 @@ error_setspeed:
 error_tcsetattr:
 error_tcgetattr:
 error_read:
+    script_device_unbind();
     tty_disconnect();
 error_open:
     return TIO_ERROR;
