@@ -2736,7 +2736,7 @@ int tty_connect(void)
     {
         while (true)
         {
-            int ret = read(pipefd[0], &input_char, 1);
+            int ret = read(pipefd[0], input_buffer, BUFSIZ);
             if (ret < 0)
             {
                 tio_error_printf("Could not read from pipe (%s)", strerror(errno));
@@ -2745,7 +2745,7 @@ int tty_connect(void)
             else if (ret > 0)
             {
                 // Forward to tty device
-                ret = write_poll(device_fd, &input_char, 1, WRITE_POLL_FOREVER);
+                ret = tty_write(device_fd, input_buffer, ret);
                 if (ret < 0)
                 {
                     tio_error_printf("Could not write to serial device (%s)", strerror(errno));
