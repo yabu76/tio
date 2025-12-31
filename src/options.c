@@ -853,15 +853,15 @@ void options_print()
     tio_printf(" Flow: %s", option_flow_to_string(option.flow));
     tio_printf(" Stopbits: %d", option.stopbits);
     tio_printf(" Parity: %s", option_parity_to_string(option.parity));
-    tio_printf(" Local echo: %s", option.local_echo ? "true" : "false");
+    tio_printf(" Local echo: %s", option.local_echo ? "yes" : "no");
     tio_printf(" Timestamp: %s", option_timestamp_format_to_string(option.timestamp));
     tio_printf(" Timestamp timeout: %u", option.timestamp_timeout);
     tio_printf(" Output delay: %d", option.output_delay);
     tio_printf(" Output line delay: %d", option.output_line_delay);
     tio_printf(" Output line delay char: %s", option.output_line_delay_char == '\r' ? "cr" : "lf");
     tio_printf(" Automatic connect strategy: %s", option_auto_connect_state_to_string(option.auto_connect));
-    tio_printf(" Automatic reconnect: %s", option.no_reconnect ? "true" : "false");
-    tio_printf(" TTY device settings restore: %s", option.no_tty_restore ? "true" : "false");
+    tio_printf(" Automatic reconnect: %s", option.no_reconnect ? "no" : "yes");
+    tio_printf(" TTY device settings restore: %s", option.no_tty_restore ? "no" : "yes");
     // clang-format off
     tio_printf(" Pulse duration: DTR=%d RTS=%d CTS=%d DSR=%d DCD=%d RI=%d", option.dtr_pulse_duration,
                                                                             option.rts_pulse_duration,
