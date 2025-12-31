@@ -82,6 +82,7 @@ struct option_t option =
     .dcd_pulse_duration = 100,
     .ri_pulse_duration = 100,
     .no_reconnect = false,
+    .no_tty_restore = false,
     .auto_connect = AUTO_CONNECT_DIRECT,
     .log = false,
     .log_append = false,
@@ -153,6 +154,7 @@ void option_print_help(char *argv[])
     printf("      --exclude-drivers <pattern>        Exclude drivers by pattern\n");
     printf("      --exclude-tids <pattern>           Exclude topology IDs by pattern\n");
     printf("  -n, --no-reconnect                     Do not reconnect\n");
+    printf("  -N, --no-tty-restore                   Do not restore initial TTY device settings\n");
     printf("  -e, --local-echo                       Enable local echo\n");
     printf("      --input-mode normal|hex|line       Select input mode (default: normal)\n");
     printf("      --output-mode normal|hex|hexN      Select output mode (default: normal)\n");
@@ -844,6 +846,7 @@ void option_parse_mappings(const char *map)
 
 void options_print()
 {
+    /* note: negative true/false settings are rephrased as affirmative no/yes. */
     tio_printf(" Device: %s", device_name);
     tio_printf(" Baudrate: %u", option.baudrate);
     tio_printf(" Databits: %d", option.databits);
@@ -858,6 +861,7 @@ void options_print()
     tio_printf(" Output line delay char: %s", option.output_line_delay_char == '\r' ? "cr" : "lf");
     tio_printf(" Automatic connect strategy: %s", option_auto_connect_state_to_string(option.auto_connect));
     tio_printf(" Automatic reconnect: %s", option.no_reconnect ? "true" : "false");
+    tio_printf(" TTY device settings restore: %s", option.no_tty_restore ? "true" : "false");
     // clang-format off
     tio_printf(" Pulse duration: DTR=%d RTS=%d CTS=%d DSR=%d DCD=%d RI=%d", option.dtr_pulse_duration,
                                                                             option.rts_pulse_duration,
@@ -933,6 +937,7 @@ void options_parse(int argc, char *argv[])
             {"exclude-drivers",      required_argument, 0, OPT_EXCLUDE_DRIVERS     },
             {"exclude-tids",         required_argument, 0, OPT_EXCLUDE_TIDS        },
             {"no-reconnect",         no_argument,       0, 'n'                     },
+            {"no-tty-restore",       no_argument,       0, 'N'                     },
             {"local-echo",           no_argument,       0, 'e'                     },
             {"timestamp",            no_argument,       0, 't'                     },
             {"timestamp-format",     required_argument, 0, OPT_TIMESTAMP_FORMAT    },
@@ -967,7 +972,7 @@ void options_parse(int argc, char *argv[])
         int option_index = 0;
 
         /* Parse argument using getopt_long */
-        c = getopt_long(argc, argv, "b:d:f:s:p:o:O:a:netLlS:m:c:xrvh", long_options, &option_index);
+        c = getopt_long(argc, argv, "b:d:f:s:p:o:O:a:nNetLlS:m:c:xrvh", long_options, &option_index);
 
         /* Detect the end of the options */
         if (c == -1)
@@ -1039,6 +1044,10 @@ void options_parse(int argc, char *argv[])
 
             case 'n':
                 option.no_reconnect = true;
+                break;
+
+            case 'N':
+                option.no_tty_restore = true;
                 break;
 
             case 'e':
