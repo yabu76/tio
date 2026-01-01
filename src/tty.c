@@ -256,7 +256,10 @@ void tty_sync(int fd)
         cp += count;
         remain -= count;
 
-        /* Reduce the number of additional sends */
+        // Update transmit statistics
+        tx_total += count;
+
+        // Reduce the number of additional writes
         if (remain > 0)
         {
             int estimated_sendtime_us = (int)((int64_t)count * 10 * 1000 * 1000 / option.baudrate);
@@ -274,64 +277,127 @@ void tty_sync(int fd)
     tty_buffer_count = 0;
 }
 
-ssize_t tty_write(int fd, void *buffer, size_t count)
+static ssize_t tty_raw_write(int fd)
 {
-    ssize_t retval = 0, bytes_written = 0;
-    size_t i;
-    unsigned char *cbuf = (unsigned char *)buffer;
-
-    if (option.map_o_ltu)
+    if ( ! (option.output_delay || option.output_line_delay || option.map_o_nulbrk) )
     {
-        // Convert lower case to upper case
-        for (i = 0; i < count; i++)
-        {
-            cbuf[i] = toupper(cbuf[i]);
-        }
+        return 0; // No-op in this function, write in tty_sync()
     }
 
-    if (option.output_delay || option.output_line_delay)
+    // Write byte by byte with output delay and null break
+    ssize_t retval = 0;
+    size_t i;
+
+    for (i = 0; i < tty_buffer_count; i++)
     {
-        // Write byte by byte with output delay
-        for (i = 0; i < count; i++)
+        if ((tty_buffer[i] == 0) && (option.map_o_nulbrk))
         {
-            retval = write_poll(fd, &cbuf[i], 1, WRITE_POLL_FOREVER);
+            retval = tcsendbreak(fd, 0);
             if (retval < 0)
             {
-                // Error
-                tio_debug_printf("Write error (%s)", strerror(errno));
-                return retval;
+                tio_warning_printf("Could not send break");
+                goto error;
             }
-            bytes_written += retval;
+            continue;
+        }
 
-            fsync(fd);
-            tcdrain(fd);
+        retval = write_poll(fd, &tty_buffer[i], 1, WRITE_POLL_FOREVER);
+        if (retval < 0)
+        {
+            // Error
+            tio_debug_printf("Write error (%s)", strerror(errno));
+            goto error;
+        }
 
-            if (option.output_line_delay && cbuf[i] == option.output_line_delay_char)
-            {
-                delay(option.output_line_delay);
-            }
-            else if (option.output_delay)
-            {
-                delay(option.output_delay);
-            }
+        fsync(fd);
+        tcdrain(fd);
+
+        // Update transmit statistics
+        tx_total++;
+
+        if (option.output_line_delay && tty_buffer[i] == option.output_line_delay_char)
+        {
+            delay(option.output_line_delay);
+        }
+        else if (option.output_delay)
+        {
+            delay(option.output_delay);
         }
     }
-    else
+    retval = tty_buffer_count;
+    // Path-through
+
+ error:
+    // Reset
+    tty_buffer_write_ptr = tty_buffer;
+    tty_buffer_count = 0;
+
+    return retval;
+}
+
+ssize_t tty_write(int fd, const void *buffer, size_t count)
+{
+    int status;
+    const char *cp = (char *)buffer;
+    size_t i;
+
+    for (i = 0; i < count; i++, cp++)
     {
-        // Force write of tty buffer if too full
-        if ((tty_buffer_count + count) > BUFSIZ)
+        char *tp;
+        int bytes_add;
+
+        if (tty_buffer_count >= BUFSIZ)
         {
+            status = tty_raw_write(fd);
+            if (status < 0)
+            {
+                return status;
+            }
             tty_sync(fd);
         }
 
-        // Copy bytes to tty write buffer
-        memcpy(tty_buffer_write_ptr, buffer, count);
-        tty_buffer_write_ptr += count;
-        tty_buffer_count += count;
-        bytes_written = count;
+        /* Map output character */
+        bytes_add = -1; /* negative value means "not mapped yet" */
+        tp = tty_buffer_write_ptr;
+        if ((*cp == 127) && (option.map_o_del_bs))
+        {
+            *tp = '\b';
+            bytes_add = 1;
+        }
+        if ((*cp == '\r') && (option.map_o_cr_nl))
+        {
+            *tp = '\n';
+            bytes_add = 1;
+        }
+        if ((*cp == '\r') && (option.map_o_ign_cr))
+        {
+            bytes_add = 0;
+        }
+        if ((*cp == '\n' || *cp == '\r') && (option.map_o_nl_crnl))
+        {
+            *tp = '\r';
+            *(tp + 1) = '\n';
+            bytes_add = 2;
+        }
+        if (bytes_add < 0)
+        {
+            *tp = (option.map_o_ltu) ? toupper(*cp) : *cp;
+            bytes_add = 1;
+        }
+
+        if (bytes_add > 0)
+        {
+            tty_buffer_write_ptr += bytes_add;
+            tty_buffer_count += bytes_add;
+        }
     }
 
-    return bytes_written;
+    status = tty_raw_write(fd);
+    if (status < 0)
+    {
+        return status;
+    }
+    return count;
 }
 
 void *tty_stdin_input_thread(void *arg)
@@ -475,10 +541,6 @@ static void handle_hex_prompt(char c)
         if (status < 0)
         {
             tio_warning_printf("Could not write to tty device");
-        }
-        else
-        {
-            tx_total++;
         }
     }
 }
@@ -2520,38 +2582,26 @@ void tty_restore(void)
     }
 }
 
+/* output mode and local echo handling */
 void forward_to_tty(int fd, char output_char)
 {
     int status;
 
-    /* Map output character */
-    if ((output_char == 127) && (option.map_o_del_bs))
-    {
-        output_char = '\b';
-    }
-    if ((output_char == '\r') && (option.map_o_cr_nl))
-    {
-        output_char = '\n';
-    }
     if ((output_char == '\r') && (option.map_o_ign_cr))
     {
         return;
     }
 
-    /* Map newline character */
+    /* local echo special case in newline character */
     if ((output_char == '\n' || output_char == '\r') && (option.map_o_nl_crnl))
     {
-        char crlf[] = "\r\n";
-
-        optional_local_echo(crlf[0]);
-        optional_local_echo(crlf[1]);
-        status = tty_write(fd, crlf, 2);
+        optional_local_echo('\r');
+        optional_local_echo('\n');
+        status = tty_write(fd, &output_char, 1);
         if (status < 0)
         {
             tio_warning_printf("Could not write to tty device");
         }
-
-        tx_total += 2;
     }
     else
     {
@@ -2570,22 +2620,11 @@ void forward_to_tty(int fd, char output_char)
                         optional_local_echo(output_char);
                     }
 
-                    if ((output_char == 0) && (option.map_o_nulbrk))
-                    {
-                        status = tcsendbreak(fd, 0);
-                    }
-                    else
-                    {
-                        status = tty_write(fd, &output_char, 1);
-                    }
-
+                    status = tty_write(fd, &output_char, 1);
                     if (status < 0)
                     {
                         tio_warning_printf("Could not write to tty device");
                     }
-
-                    /* Update transmit statistics */
-                    tx_total++;
                 }
                 break;
 
@@ -2604,7 +2643,6 @@ void forward_to_tty(int fd, char output_char)
                     else
                     {
                         optional_local_echo(output_char);
-                        tx_total++;
                     }
                 }
                 break;
