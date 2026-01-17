@@ -60,6 +60,8 @@ enum opt_t
     OPT_EXCLUDE_DRIVERS,
     OPT_EXCLUDE_TIDS,
     OPT_EXEC,
+    OPT_RAW,
+    OPT_RAW_INTERACTIVE,
 };
 
 // clang-format off
@@ -128,6 +130,8 @@ struct option_t option =
     .map_o_nulbrk = false,
     .map_i_msb2lsb = false,
     .map_o_ign_cr = false,
+    .raw = RAW_ON_DELAY,
+    .raw_interactive = RAW_OFF,
 };
 // clang-format on
 
@@ -170,6 +174,8 @@ void option_print_help(char *argv[])
     printf("  -m, --map <flags>                      Map characters\n");
     printf("  -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)\n");
     printf("  -S, --socket <socket>                  Redirect I/O to socket\n");
+    printf("      --raw off|on|on-nodelay            Select raw mode for non-interactive use (default: on)\n");
+    printf("      --raw-interactive off|on|on-nodelay  Select raw mode for interactive use (default: off)\n");
     printf("      --rs-485                           Enable RS-485 mode\n");
     printf("      --rs-485-config <config>           Set RS-485 configuration\n");
     printf("      --alert bell|blink|none            Alert on connect/disconnect (default: none)\n");
@@ -453,9 +459,9 @@ void option_parse_timestamp(const char *arg, timestamp_t *timestamp)
     }
 }
 
-const char *option_alert_state_to_string(alert_t state)
+const char *option_alert_state_to_string(alert_t alert_state)
 {
-    switch (state)
+    switch (alert_state)
     {
         case ALERT_NONE:
             return "none";
@@ -729,6 +735,44 @@ const char *option_output_mode_to_string(output_mode_t mode)
     return NULL;
 }
 
+void option_parse_raw(const char *arg, raw_t *raw)
+{
+    assert(arg != NULL);
+
+    if (strcmp("off", arg) == 0)
+    {
+        *raw = RAW_OFF;
+    }
+    else if (strcmp("on", arg) == 0)
+    {
+        *raw = RAW_ON_DELAY;
+    }
+    else if (strcmp("on-nodelay", arg) == 0)
+    {
+        *raw = RAW_ON_NODELAY;
+    }
+    else
+    {
+        tio_error_print("Invalid raw option '%s'", arg);
+        exit(EXIT_FAILURE);
+    }
+}
+
+const char *option_raw_to_string(raw_t raw)
+{
+    switch (raw)
+    {
+        case RAW_OFF:
+            return "off";
+        case RAW_ON_DELAY:
+            return "on";
+        case RAW_ON_NODELAY:
+            return "on-nodelay";
+    }
+
+    return NULL;
+}
+
 void option_parse_script_run(const char *arg, script_run_t *script_run)
 {
     assert(arg != NULL);
@@ -872,6 +916,8 @@ void options_print()
     // clang-format on
     tio_printf(" Input mode: %s", option_input_mode_to_string(option.input_mode));
     tio_printf(" Output mode: %s", option_output_mode_to_string(option.output_mode));
+    tio_printf(" Raw (non-interactive): %s", option_raw_to_string(option.raw));
+    tio_printf(" Raw interactive: %s", option_raw_to_string(option.raw_interactive));
     tio_printf(" Alert: %s", option_alert_state_to_string(option.alert));
     if (option.log)
     {
@@ -953,6 +999,8 @@ void options_parse(int argc, char *argv[])
             {"color",                required_argument, 0, 'c'                     },
             {"input-mode",           required_argument, 0, OPT_INPUT_MODE          },
             {"output-mode",          required_argument, 0, OPT_OUTPUT_MODE         },
+            {"raw",                  required_argument, 0, OPT_RAW                 },
+            {"raw-interactive",      required_argument, 0, OPT_RAW_INTERACTIVE     },
             {"rs-485",               no_argument,       0, OPT_RS485               },
             {"rs-485-config",        required_argument, 0, OPT_RS485_CONFIG        },
             {"alert",                required_argument, 0, OPT_ALERT               },
@@ -1145,6 +1193,14 @@ void options_parse(int argc, char *argv[])
 
             case OPT_EXEC:
                 option.exec = optarg;
+                break;
+
+            case OPT_RAW:
+                option_parse_raw(optarg, &option.raw);
+                break;
+
+            case OPT_RAW_INTERACTIVE:
+                option_parse_raw(optarg, &option.raw_interactive);
                 break;
 
             case 'v':

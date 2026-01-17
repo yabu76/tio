@@ -69,8 +69,18 @@ typedef struct
     bool reserved;
 } tty_line_config_t;
 
+typedef enum
+{
+    STATE_INTERACTIVE,
+    STATE_STARTING,
+    STATE_PIPED_INPUT,
+    STATE_EXEC_SHELL_COMMAND,
+    STATE_XYMODEM,
+} state_t;
+
 extern const char *device_name;
 extern bool interactive_mode;
+extern state_t state;
 
 void stdout_configure(void);
 void stdin_configure(void);
@@ -88,3 +98,4 @@ GList *tty_search_for_serial_devices(void);
 void forward_to_tty(int fd, char output_char);
 ssize_t tty_write(int fd, const void *buffer, size_t count);
 void tty_sync(int fd);
+int tty_tcsetattr(int fd);

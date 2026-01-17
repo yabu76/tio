@@ -212,6 +212,20 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
         g_free((void *)string);
         string = NULL;
     }
+    config_get_string(key_file, group, "raw", &string, NULL);
+    if (string != NULL)
+    {
+        option_parse_raw(string, &option.raw);
+        g_free((void *)string);
+        string = NULL;
+    }
+    config_get_string(key_file, group, "raw-interactive", &string, NULL);
+    if (string != NULL)
+    {
+        option_parse_raw(string, &option.raw_interactive);
+        g_free((void *)string);
+        string = NULL;
+    }
     config_get_bool(key_file, group, "timestamp", (bool*) &option.timestamp);
     if (option.timestamp != TIMESTAMP_NONE)
     {

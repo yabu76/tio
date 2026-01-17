@@ -185,6 +185,15 @@ static int xmsend_wait_response(int sio, char *resp, char tmo_resp)
     return OK;
 }
 
+static ssize_t xmodem_tty_write(int sio, const void *buf, size_t bufsiz)
+{
+    ssize_t ret = tty_write(sio, buf, bufsiz);
+    if (ret >= 0) {
+        tty_sync(sio);
+    }
+    return ret;
+}
+
 /*
  * Send EOT at 1 Hz until ACK or CAN received
  */
@@ -198,7 +207,7 @@ static int xmsend_repeat_eot_and_wait_response(int sio)
         if (key_hit)
             return ERR_USER_CAN;
 
-        if (write(sio, EOT_STR, 1) < 0)
+        if (xmodem_tty_write(sio, EOT_STR, 1) < 0)
         {
             tio_error_print("Write EOT to serial failed");
             return ERR;
@@ -265,7 +274,7 @@ static int xmodem_send_1k(int sio, const void *data, size_t len, int seq)
             if (key_hit)
                 return ERR_USER_CAN;
 
-            if ((rc = write(sio, from, sz)) < 0 )
+            if ((rc = xmodem_tty_write(sio, from, sz)) < 0 )
             {
                 if (errno ==  EWOULDBLOCK)
                 {
@@ -398,7 +407,7 @@ static int xmodem_send_128b(int sio, const void *data, size_t len, bool use_crc)
             if (key_hit)
                 return ERR_USER_CAN;
 
-            if ((rc = write(sio, from, sz)) < 0 )
+            if ((rc = xmodem_tty_write(sio, from, sz)) < 0 )
             {
                 if (errno ==  EWOULDBLOCK)
                 {
@@ -524,9 +533,9 @@ static int xmrecv_start_receive(int sio, bool use_crc)
            seconds.  If nothing is received in that time then return false to indicate
            that the transfer did not start. */
         if (use_crc)
-            rc = write(sio, "C", 1);
+            rc = xmodem_tty_write(sio, "C", 1);
         else
-            rc = write(sio, NAK_STR, 1);
+            rc = xmodem_tty_write(sio, NAK_STR, 1);
 
         if (rc < 0)
         {
@@ -611,7 +620,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for next packet char");
-            rc = write(sio, CAN_STR, 1);
+            rc = xmodem_tty_write(sio, CAN_STR, 1);
             if (rc < 0)
             {
                 tio_error_print("Write cancel packet to serial failed");
@@ -622,7 +631,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
         else if (rc < 0)
         {
             tio_error_print("Error reading next packet char");
-            rc = write(sio, CAN_STR, 1);
+            rc = xmodem_tty_write(sio, CAN_STR, 1);
             if (rc < 0)
             {
                 tio_error_print("Write cancel packet to serial failed");
@@ -702,7 +711,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     {
         tio_error_print("%s", strerror(errno));
         tio_error_print("Poll check error after packet finish");
-        rc = write(sio, CAN_STR, 1);
+        rc = xmodem_tty_write(sio, CAN_STR, 1);
         if (rc < 0)
         {
             tio_error_print("Write cancel packet to serial failed");
@@ -732,7 +741,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     if ((calcCrc == rxCrc) && (seq1 == packet->hdr.seq - 1) && ((seq1 ^ seq2) == tester))
     {
         /* Resend of previously processed packet. */
-        rc = write(sio, ACK_STR, 1);
+        rc = xmodem_tty_write(sio, ACK_STR, 1);
         if (rc < 0)
         {
             tio_error_print("Write acknowlegdement packet to serial failed");
@@ -755,18 +764,18 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     else
     {
         /* The data is good.  Process the packet then ACK it to the sender. */
-        rc = write(fd, packet->data, sizeof(packet->data));
+        rc = xmodem_tty_write(fd, packet->data, sizeof(packet->data));
         if (rc < 0)
         {
             tio_error_print("Problem writing to file");
-            rc = write(sio, CAN_STR, 1);
+            rc = xmodem_tty_write(sio, CAN_STR, 1);
             if (rc < 0)
             {
                 tio_error_print("Write cancel packet to serial failed");
             }
             return ERR_FATAL;
         }
-        rc = write(sio, ACK_STR, 1);
+        rc = xmodem_tty_write(sio, ACK_STR, 1);
         if (rc < 0)
         {
             tio_error_print("Write acknowlegdement packet to serial failed");
@@ -840,7 +849,7 @@ int xmodem_receive(int sio, int fd, bool use_crc)
                 }
                 else if (err == ERR || err == ERR_TMO)
                 {
-                    rc = write(sio, NAK_STR, 1);
+                    rc = xmodem_tty_write(sio, NAK_STR, 1);
                     if (rc < 0)
                     {
                         tio_error_print("Writing not acknowledge packet to serial failed");
@@ -855,7 +864,7 @@ int xmodem_receive(int sio, int fd, bool use_crc)
                 }
                 else if (err == ERR_USER_CAN)
                 {
-                    rc = write(sio, CAN_STR, 1);
+                    rc = xmodem_tty_write(sio, CAN_STR, 1);
                     if (rc < 0)
                     {
                         tio_error_print("Writing cancel to serial failed");
@@ -871,7 +880,7 @@ int xmodem_receive(int sio, int fd, bool use_crc)
 
             case EOT:
                 /* End of Transfer */
-                rc = write(sio, ACK_STR, 1);
+                rc = xmodem_tty_write(sio, ACK_STR, 1);
                 if (rc < 0)
                 {
                     tio_error_print("Write acknowlegdement packet to serial failed");
@@ -889,7 +898,7 @@ int xmodem_receive(int sio, int fd, bool use_crc)
                 break;
 
             default:
-                tio_error_print("Unexpected character received waiting for next packet");
+                tio_error_print("Unexpected character received waiting for next packet (0x%02x)", resp);
                 return ERR;
                 break;
         }

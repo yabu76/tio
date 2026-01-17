@@ -267,6 +267,10 @@ static int api_send(lua_State *L)
         return 0;
     }
 
+    state_t state_orig = state;
+    state = STATE_XYMODEM;
+    tty_tcsetattr(device_fd);
+
     switch (protocol)
     {
         case XMODEM_1K:
@@ -293,6 +297,9 @@ static int api_send(lua_State *L)
             tio_printf("%s", ret < 0 ? "Aborted" : "Done");
             break;
     }
+
+    state = state_orig;
+    tty_tcsetattr(device_fd);
 
     return 0;
 }
@@ -704,9 +711,9 @@ void script_run_as_specified_by_options(void)
     }
 }
 
-const char *script_run_state_to_string(script_run_t state)
+const char *script_run_state_to_string(script_run_t run_state)
 {
-    switch (state)
+    switch (run_state)
     {
         case SCRIPT_RUN_ONCE:
             return "once";

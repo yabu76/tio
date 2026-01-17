@@ -43,6 +43,13 @@ typedef enum
     OUTPUT_MODE_END,
 } output_mode_t;
 
+typedef enum
+{
+    RAW_OFF,
+    RAW_ON_DELAY,
+    RAW_ON_NODELAY,
+} raw_t;
+
 /* Options */
 struct option_t
 {
@@ -75,6 +82,8 @@ struct option_t
     int color;
     input_mode_t input_mode;
     output_mode_t output_mode;
+    raw_t raw;
+    raw_t raw_interactive;
     char prefix_code;
     char prefix_key;
     bool prefix_enabled;
@@ -123,6 +132,7 @@ void option_parse_parity(const char *arg, parity_t *parity);
 
 void option_parse_output_mode(const char *arg, output_mode_t *mode);
 void option_parse_input_mode(const char *arg, input_mode_t *mode);
+void option_parse_raw(const char *arg, raw_t *raw);
 
 void option_parse_output_line_delay_char(const char *arg);
 void option_parse_line_pulse_duration(const char *arg);
@@ -136,3 +146,5 @@ void option_parse_timestamp(const char *arg, timestamp_t *timestamp);
 const char* option_timestamp_format_to_string(timestamp_t timestamp);
 
 void option_parse_mappings(const char *map);
+
+const char* option_raw_to_string(raw_t raw);
