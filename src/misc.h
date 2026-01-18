@@ -38,3 +38,7 @@ double get_current_time(void);
 bool match_patterns(const char *string, const char *patterns);
 int execute_shell_command(int fd, const char *command);
 void clear_line();
+
+#if defined(__linux__)
+void terminate_shell_command(void);
+#endif

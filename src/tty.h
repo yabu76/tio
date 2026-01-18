@@ -81,6 +81,7 @@ typedef enum
 extern const char *device_name;
 extern bool interactive_mode;
 extern state_t state;
+extern unsigned long rx_total, tx_total;
 
 void stdout_configure(void);
 void stdin_configure(void);

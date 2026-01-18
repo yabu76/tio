@@ -175,7 +175,7 @@ char key_hit = 0xff;
 const char* device_name = NULL;
 GList *device_list = NULL;
 static struct termios tio, tio_raw, tio_old, stdout_new, stdout_old, stdin_new, stdin_old;
-static unsigned long rx_total = 0, tx_total = 0;
+unsigned long rx_total = 0, tx_total = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
 static void (*printchar)(char c);
@@ -557,6 +557,15 @@ void *tty_stdin_input_thread(void *arg)
                             tio_printf("Flushed data I/O buffers");
                             tcflush(device_fd, TCIOFLUSH);
                             break;
+#if defined(__linux__)
+                        case KEY_SHIFT_R:
+                            if (state == STATE_EXEC_SHELL_COMMAND)
+                            {
+                                tio_printf("Terminated shell command");
+                                terminate_shell_command();
+                            }
+                            break;
+#endif
                         default:
                             break;
                     }
