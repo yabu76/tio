@@ -1710,11 +1710,8 @@ void tty_configure(void)
 
     /* Create raw-mode configuration */
     memcpy(&tio_raw, &tio, sizeof(tio_raw));
-    if (option.flow == FLOW_SOFT)
-    {
-        tio_raw.c_iflag &= ~(IXON | IXOFF | IXANY);
-        tio_raw.c_iflag &= ~(INLCR | IGNCR | ICRNL);
-    }
+    tio_raw.c_iflag &= ~(IXON | IXOFF | IXANY);
+    tio_raw.c_iflag &= ~(INLCR | IGNCR | ICRNL);
 }
 
 void tty_reconfigure(void)
