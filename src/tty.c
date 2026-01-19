@@ -1721,7 +1721,7 @@ void tty_reconfigure(void)
     if (connected)
     {
         /* Activate new port settings */
-        tcsetattr(device_fd, TCSANOW, &tio);
+        tty_tcsetattr(device_fd);
     }
 }
 
