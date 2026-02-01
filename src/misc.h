@@ -24,7 +24,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#define WRITE_POLL_FOREVER (-1)
+#define POLL_NOWAIT (0)
+#define POLL_FOREVER (-1)
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
 void delay(long ms);

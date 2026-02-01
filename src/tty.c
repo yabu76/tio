@@ -302,7 +302,7 @@ void tty_sync(int fd)
 
     while (remain > 0)
     {
-        count = write_poll(fd, cp, remain, WRITE_POLL_FOREVER);
+        count = write_poll(fd, cp, remain, POLL_FOREVER);
         if (count < 0)
         {
             // Error
@@ -360,7 +360,7 @@ static ssize_t tty_raw_write(int fd)
             continue;
         }
 
-        retval = write_poll(fd, &tty_buffer[i], 1, WRITE_POLL_FOREVER);
+        retval = write_poll(fd, &tty_buffer[i], 1, POLL_FOREVER);
         if (retval < 0)
         {
             // Error

@@ -58,11 +58,14 @@ static char script_init[] =
 "    local ri = arg.RI or -1\n"
 "    tio.line_set(dtr, rts, cts, dsr, cd, ri)\n"
 "end\n"
-"tio.EXPECT_CLEANUP_READ_SIZE = 4096\n"
+"tio.C = {}\n"
+"tio.C.EXPECT_CLEANUP_READ_SIZE = 4096\n"
+"tio.C.WAIT_FOREVER = 0\n"
+"tio.C.NOWAIT = -1\n"
 "tio.expect = function(pattern, timeout)\n"
 "    local str = ''\n"
 "    while true do\n"
-"        local astr = tio.read(tio.EXPECT_CLEANUP_READ_SIZE, 0)\n"
+"        local astr = tio.read(tio.C.EXPECT_CLEANUP_READ_SIZE, tio.C.NOWAIT)\n"
 "        local c = nil\n"
 "        if astr == nil then\n"
 "            c = tio.read(1, timeout)\n"
@@ -83,7 +86,7 @@ static char script_init[] =
 "        patterns = { patterns }\n"
 "    end\n"
 "    while true do\n"
-"        local astr = tio.read(tio.EXPECT_CLEANUP_READ_SIZE, 0)\n"
+"        local astr = tio.read(tio.C.EXPECT_CLEANUP_READ_SIZE, tio.C.NOWAIT)\n"
 "        local c = nil\n"
 "        if astr == nil then\n"
 "            c = tio.read(1, timeout)\n"
@@ -319,7 +322,7 @@ static int api_write(lua_State *L)
 
     do
     {
-        ret = write_poll(device_fd, string, len, WRITE_POLL_FOREVER);
+        ret = write_poll(device_fd, string, len, POLL_FOREVER);
         if (ret < 0)
             return luaL_error(L, "%s", strerror(errno));
 
@@ -364,12 +367,21 @@ static int api_twrite(lua_State *L)
 static int api_read(lua_State *L)
 {
     int size = luaL_checkinteger(L, 1);
-    int timeout = luaL_optinteger(L, 2, -1); // ms, negative value means forever.
+    int timeout = luaL_optinteger(L, 2, 0); // ms, zero value means forever, negative value means nowait.
 
     if (device_fd == 0)
     {
         return luaL_error(L, "tty device not ready");
     }
+
+    // For C API, the values for forever and nowait are swapped.
+    int timeout_c;
+    if (timeout > 0)
+        timeout_c = timeout;
+    else if (timeout == 0)
+        timeout_c = POLL_FOREVER;
+    else if (timeout < 0)
+        timeout_c = POLL_NOWAIT;
 
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
@@ -382,7 +394,7 @@ static int api_read(lua_State *L)
     char *p = luaL_prepbuffer(&buffer);
 #endif
 
-    ssize_t ret = read_poll(device_fd, p, size, timeout);
+    ssize_t ret = read_poll(device_fd, p, size, timeout_c);
     if (ret < 0)
         return luaL_error(L, "%s", strerror(errno));
 
@@ -406,7 +418,7 @@ static int api_read(lua_State *L)
 // lua: string = tio.readline(timeout)
 static int api_readline(lua_State *L)
 {
-    int timeout = luaL_optinteger(L, 1, -1); // ms, negative value means forever.
+    int timeout = luaL_optinteger(L, 1, 0); // ms, zero value means forever, negative value means nowait.
     luaL_Buffer b;
     char ch;
 
@@ -415,11 +427,20 @@ static int api_readline(lua_State *L)
         return luaL_error(L, "tty device not ready");
     }
 
+    // For C API, the values for forever and nowait are swapped.
+    int timeout_c;
+    if (timeout > 0)
+        timeout_c = timeout;
+    else if (timeout == 0)
+        timeout_c = POLL_FOREVER;
+    else if (timeout < 0)
+        timeout_c = POLL_NOWAIT;
+
     luaL_buffinit(L, &b);
     luaL_prepbuffer(&b);
     while (true)
     {
-        int ret = read_poll(device_fd, &ch, 1, timeout);
+        int ret = read_poll(device_fd, &ch, 1, timeout_c);
 
         if (ret < 0)
             return luaL_error(L, "%s", strerror(errno));
