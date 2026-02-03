@@ -51,6 +51,7 @@ enum opt_t
     OPT_ALERT,
     OPT_COMPLETE_PROFILES,
     OPT_MUTE,
+    OPT_SCRIPT_INIT_FILE,
     OPT_SCRIPT,
     OPT_SCRIPT_FILE,
     OPT_SCRIPT_RUN,
@@ -107,6 +108,7 @@ struct option_t option =
     .rs485_delay_rts_after_send = -1,
     .alert = ALERT_NONE,
     .complete_profiles = false,
+    .script_init_filename = NULL,
     .script = NULL,
     .script_filename = NULL,
     .script_run = SCRIPT_RUN_ALWAYS,
@@ -933,6 +935,10 @@ void options_print()
     {
         tio_printf(" Socket: %s", option.socket);
     }
+    if (option.script_init_filename != NULL)
+    {
+        tio_printf(" Script init file: %s", option.script_init_filename);
+    }
     if (option.script_filename != NULL)
     {
         tio_printf(" Script file: %s", option.script_filename);
@@ -1005,6 +1011,7 @@ void options_parse(int argc, char *argv[])
             {"rs-485-config",        required_argument, 0, OPT_RS485_CONFIG        },
             {"alert",                required_argument, 0, OPT_ALERT               },
             {"mute",                 no_argument,       0, OPT_MUTE                },
+            {"script-init-file",     required_argument, 0, OPT_SCRIPT_INIT_FILE    },
             {"script",               required_argument, 0, OPT_SCRIPT              },
             {"script-file",          required_argument, 0, OPT_SCRIPT_FILE         },
             {"script-run",           required_argument, 0, OPT_SCRIPT_RUN          },
@@ -1177,6 +1184,10 @@ void options_parse(int argc, char *argv[])
 
             case OPT_MUTE:
                 option.mute = true;
+                break;
+
+            case OPT_SCRIPT_INIT_FILE:
+                option.script_init_filename = optarg;
                 break;
 
             case OPT_SCRIPT:

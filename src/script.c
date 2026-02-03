@@ -636,6 +636,14 @@ static lua_State *script_interp_new(void)
     // Initialize globals
     script_set_globals(L);
 
+    // Execute script-init file
+    if (option.script_init_filename) {
+        if (luaL_dofile(L, option.script_init_filename)) {
+            tio_warning_printf("lua: %s", lua_tostring(L, -1));
+            lua_pop(L, 1);
+        }
+    }
+
     return L;
 }
 

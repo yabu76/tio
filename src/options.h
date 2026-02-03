@@ -94,6 +94,7 @@ struct option_t
     int32_t rs485_delay_rts_after_send;
     alert_t alert;
     bool complete_profiles;
+    char *script_init_filename;
     char *script;
     char *script_filename;
     script_run_t script_run;
