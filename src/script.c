@@ -728,15 +728,13 @@ void script_run_as_specified_by_options(void)
     if (option.script_filename != NULL)
     {
         tio_printf("Running script %s", option.script_filename);
-        if (script_interp_new())
-            script_file_run(script_interp, option.script_filename);
+        script_file_run(script_interp, option.script_filename);
 
     }
     else if (option.script != NULL)
     {
-        tio_printf("Running script");
-        if (script_interp_new())
-            script_buffer_run(script_interp, option.script);
+        tio_printf("Running script !%s", option.script);
+        script_buffer_run(script_interp, option.script);
     }
 }
 
