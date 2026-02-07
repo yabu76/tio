@@ -182,6 +182,7 @@ void option_print_help(char *argv[])
     printf("      --rs-485-config <config>           Set RS-485 configuration\n");
     printf("      --alert bell|blink|none            Alert on connect/disconnect (default: none)\n");
     printf("      --mute                             Mute tio messages\n");
+    printf("      --script-init-file <filename>      Set initial script file to run at startup\n");
     printf("      --script <string>                  Run script from string\n");
     printf("      --script-file <filename>           Run script from file\n");
     printf("      --script-run once|always|never     Run script on connect (default: always)\n");
