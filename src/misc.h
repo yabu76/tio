@@ -26,10 +26,15 @@
 
 #define POLL_NOWAIT (0)
 #define POLL_FOREVER (-1)
+
+#define TOSTRING_(x) #x
+#define TOSTR(x) TOSTRING_(x)
+
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
 void delay(long ms);
 int ctrl_key_code(unsigned char key);
+int ctrl_key_char(int key_code);
 bool regex_match(const char *string, const char *pattern);
 unsigned long djb2_hash(const unsigned char *str);
 void *base62_encode(unsigned long num, char *output);

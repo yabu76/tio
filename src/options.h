@@ -105,6 +105,7 @@ struct option_t
     int hex_n_value;
     bool vt100;
     char *exec;
+    char *keymap;
     bool map_i_nl_cr;
     bool map_i_cr_nl;
     bool map_ign_cr;
@@ -120,7 +121,18 @@ struct option_t
     bool map_o_ign_cr;
 };
 
+#define KEYMAP_MAX 32
+#define KEYMAP_KEY_STR_MAX 7
+#define KEYMAP_FUNC_STR_MAX 127
+
+struct keymap_t
+{
+    char key[KEYMAP_KEY_STR_MAX + 1];
+    char func[KEYMAP_FUNC_STR_MAX + 1];
+};
+
 extern struct option_t option;
+extern struct keymap_t keymaps[KEYMAP_MAX];
 
 void options_print();
 void options_parse(int argc, char *argv[]);
@@ -147,5 +159,8 @@ void option_parse_timestamp(const char *arg, timestamp_t *timestamp);
 const char* option_timestamp_format_to_string(timestamp_t timestamp);
 
 void option_parse_mappings(const char *map);
+void option_parse_key_mappings(const char *keymap);
 
 const char* option_raw_to_string(raw_t raw);
+
+void keymaps_print(const char *title, int indent);

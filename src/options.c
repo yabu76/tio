@@ -63,6 +63,7 @@ enum opt_t
     OPT_EXEC,
     OPT_RAW,
     OPT_RAW_INTERACTIVE,
+    OPT_KEYMAP,
 };
 
 // clang-format off
@@ -134,8 +135,11 @@ struct option_t option =
     .map_o_ign_cr = false,
     .raw = RAW_ON_DELAY,
     .raw_interactive = RAW_OFF,
+    .keymap = NULL,
 };
 // clang-format on
+
+struct keymap_t keymaps[KEYMAP_MAX] = {0};
 
 void option_print_help(char *argv[])
 {
@@ -174,6 +178,7 @@ void option_print_help(char *argv[])
     printf("      --log-append                       Append to log file\n");
     printf("      --log-strip                        Strip control characters and escape sequences\n");
     printf("  -m, --map <flags>                      Map characters\n");
+    printf("      --keymap <keymaps>                 Set key-script mappings\n");
     printf("  -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)\n");
     printf("  -S, --socket <socket>                  Redirect I/O to socket\n");
     printf("      --raw off|on|on-nodelay            Select raw mode for non-interactive use (default: on)\n");
@@ -945,6 +950,11 @@ void options_print()
         tio_printf(" Script file: %s", option.script_filename);
         tio_printf(" Script run: %s", script_run_state_to_string(option.script_run));
     }
+    if (option.script != NULL)
+    {
+        tio_printf(" Script command: %s", option.script);
+        tio_printf(" Script run: %s", script_run_state_to_string(option.script_run));
+    }
 }
 
 void options_parse(int argc, char *argv[])
@@ -1003,6 +1013,7 @@ void options_parse(int argc, char *argv[])
             {"log-strip",            no_argument,       0, OPT_LOG_STRIP           },
             {"socket",               required_argument, 0, 'S'                     },
             {"map",                  required_argument, 0, 'm'                     },
+            {"keymap",               required_argument, 0, OPT_KEYMAP              },
             {"color",                required_argument, 0, 'c'                     },
             {"input-mode",           required_argument, 0, OPT_INPUT_MODE          },
             {"output-mode",          required_argument, 0, OPT_OUTPUT_MODE         },
@@ -1215,6 +1226,11 @@ void options_parse(int argc, char *argv[])
                 option_parse_raw(optarg, &option.raw_interactive);
                 break;
 
+            case OPT_KEYMAP:
+                option.keymap = optarg;
+                option_parse_key_mappings(optarg);
+                break;
+
             case 'v':
                 printf("tio %s\n", VERSION);
                 exit(EXIT_SUCCESS);
@@ -1298,4 +1314,170 @@ void options_parse_final(int argc, char *argv[])
     }
     // clang-format on
 #endif
+}
+
+int keymap_set(char *key_str, int key_len, char *func_str, int func_len)
+{
+    char func_str_r[KEYMAP_FUNC_STR_MAX + 1];
+    char *srcp;
+    int dst_ofs;
+    int key_ofs;
+    int empty_idx, matched_idx, idx;
+    bool found_empty = false;
+    bool found_matched = false;
+    bool unset_requested = false;
+
+    if (key_str[key_len] != '\0' || func_str[func_len] != '\0')
+    {
+        return -1;
+    }
+
+    /* key_str should not include spaces */
+    key_ofs = 0;
+    for (key_ofs = 0; key_ofs < key_len; key_ofs++)
+    {
+        if (key_str[key_ofs] == ' ')
+        {
+            tio_error_printf("Key should not include space");
+            return -1;
+        }
+    }
+
+    /* check disallowed key_str */
+    if (strcmp(key_str, "q") == 0)
+    {
+        tio_error_printf("Key %s is immutable", key_str);
+        return -1;
+    }
+
+    /* remove prefix spaces and postfix spaces from func_str */
+    for (srcp = func_str; *srcp != '\0'; srcp++)
+    {
+        if (*srcp != ' ')
+        {
+            break;
+        }
+    }
+    strncpy(func_str_r, srcp, KEYMAP_KEY_STR_MAX);
+    func_str_r[KEYMAP_KEY_STR_MAX] = '\0';
+    for (dst_ofs = strlen(func_str_r) - 1; dst_ofs >= 0; dst_ofs--)
+    {
+        if (func_str_r[dst_ofs] != ' ')
+        {
+            func_str_r[dst_ofs + 1] = '\0';
+            break;
+        }
+    }
+    if (strcmp(func_str_r, "nil") == 0 || func_str_r[0] == '\0')
+    {
+        unset_requested = true;
+    }
+
+    /* search for entry which key matched or is empty */
+    for (idx = 0; idx < KEYMAP_MAX; idx++)
+    {
+        if (found_empty == false && keymaps[idx].key[0] == '\0')
+        {
+            empty_idx = idx;
+            found_empty = true;
+        }
+        if (found_matched == false && strcmp(keymaps[idx].key, key_str) == 0)
+        {
+            matched_idx = idx;
+            found_matched = true;
+        }
+        if (found_empty && found_matched)
+        {
+            break;
+        }
+    }
+
+    /* update entry */
+    if (unset_requested)
+    {
+        if (found_matched)
+        {
+            keymaps[matched_idx].key[0] = '\0';
+            keymaps[matched_idx].func[0] = '\0';
+        }
+    }
+    else /* set requested */
+    {
+        if (found_matched)
+        {
+            strcpy(keymaps[matched_idx].key, key_str);
+            strcpy(keymaps[matched_idx].func, func_str);
+        }
+        else if (found_empty)
+        {
+            strcpy(keymaps[empty_idx].key, key_str);
+            strcpy(keymaps[empty_idx].func, func_str);
+        }
+        else
+        {
+            tio_error_printf("Too many keymaps", key_str);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+void keymaps_print(const char *title, int indent)
+{
+    int idx;
+    bool keymap_title_done = false;
+
+    for (idx = 0; idx < KEYMAP_MAX; idx++)
+    {
+        if (keymaps[idx].key[0] == '\0')
+        {
+            continue;
+        }
+        if (!keymap_title_done)
+        {
+            if (title[0] != '\0')
+            {
+                tio_printf("%s", title);
+            }
+            keymap_title_done = true;
+        }
+        tio_printf("%*sctrl-%c %s : %s", indent, " ", option.prefix_key, keymaps[idx].key, keymaps[idx].func);
+    }
+}
+
+void option_parse_key_mappings(const char *keymap)
+{
+    char key_str[KEYMAP_KEY_STR_MAX + 1];
+    char func_str[KEYMAP_FUNC_STR_MAX + 1];
+    int key_len, func_len;
+    char *buffer;
+    char *cp;
+
+    if (keymap == NULL)
+    {
+        return;
+    }
+
+    /* Parse specified key mappings */
+    buffer = strdup(keymap);
+    cp = strchr(buffer, '@');
+    if (cp == NULL)
+    {
+        tio_error_print("Can't find keymap top character '@'");
+        goto parse_end;
+    }
+
+    while (sscanf(cp, "@%" TOSTR(KEYMAP_KEY_STR_MAX) "[^=]=%" TOSTR(KEYMAP_FUNC_STR_MAX) "[^@]", key_str, func_str) == 2)
+    {
+        key_len = strlen(key_str);
+        func_len = strlen(func_str);
+        keymap_set(key_str, key_len, func_str, func_len);
+        cp = strchr(cp + key_len + func_len + 2, '@');
+        if (cp == NULL)
+        {
+            break;
+        }
+    }
+ parse_end:
+    free(buffer);
 }

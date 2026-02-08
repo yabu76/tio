@@ -57,6 +57,16 @@ int ctrl_key_code(unsigned char key)
     return -1;
 }
 
+int ctrl_key_char(int key_code)
+{
+    if (key_code >= ('a' & ~0x60) && key_code <= ('z' & ~0x60))
+    {
+        return key_code | 0x60;
+    }
+
+    return -1;
+}
+
 bool regex_match(const char *string, const char *pattern)
 {
     regex_t regex;

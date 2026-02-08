@@ -250,6 +250,13 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
         g_free((void *)string);
         string = NULL;
     }
+    config_get_string(key_file, group, "keymap", &string, NULL);
+    if (string != NULL)
+    {
+        option_parse_key_mappings(string);
+        g_free((void *)string);
+        string = NULL;
+    }
     config_get_string(key_file, group, "color", &string, NULL);
     if (string != NULL)
     {

@@ -119,6 +119,7 @@
 #define KEY_I 0x69
 #define KEY_J 0x6A
 #define KEY_SHIFT_J 0x4A
+#define KEY_K 0x6B
 #define KEY_L 0x6C
 #define KEY_SHIFT_L 0x4C
 #define KEY_M 0x6D
@@ -1099,6 +1100,26 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             return;
         }
 
+        // Handle user keymapped commands
+        for (int idx = 0; idx < KEYMAP_MAX; idx++)
+        {
+            if ((input_char >= 0x00) && (input_char <= 0x1f))
+            {
+                int ctrl_key_ch = ctrl_key_char(input_char);
+                if ((ctrl_key_ch >= 0) &&
+                    (strncmp("ctrl-", keymaps[idx].key, 5) == 0) && (keymaps[idx].key[5] == ctrl_key_ch))
+                {
+                    script_run(keymaps[idx].func);
+                    goto handle_commands_end;
+                }
+            }
+            else if (input_char == keymaps[idx].key[0] && keymaps[idx].key[1] == '\0')
+            {
+                script_run(keymaps[idx].func);
+                goto handle_commands_end;
+            }
+        }
+
         // Handle commands
         switch (input_char)
         {
@@ -1128,6 +1149,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf(" ctrl-%c x       Send/Receive file via Xmodem", option.prefix_key);
                 tio_printf(" ctrl-%c y       Send file via Ymodem", option.prefix_key);
                 tio_printf(" ctrl-%c ctrl-%c  Send ctrl-%c character", option.prefix_key, option.prefix_key, option.prefix_key);
+                keymaps_print("User key commands:", 1);
                 break;
 
             case KEY_SHIFT_L:
@@ -1203,6 +1225,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                     rs485_print_config();
                 }
                 mappings_print();
+                keymaps_print(" Keymaps:", 4);
                 break;
 
             case KEY_E:
@@ -1288,6 +1311,12 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                         tio_printf("Turn off raw mode for interactive use");
                         break;
                 }
+                break;
+
+            case KEY_K:
+                /* Set keymap */
+                tio_subcmd_readln("Enter keymap @<key>=<script-file>|!<script> :");
+                option_parse_key_mappings(line);
                 break;
 
             case KEY_L:
@@ -1443,6 +1472,8 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 /* Ignore unknown ctrl-t escaped keys */
                 break;
         }
+
+    handle_commands_end:
     }
 
     previous_char = input_char;
