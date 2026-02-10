@@ -1368,6 +1368,11 @@ int keymap_set(char *key_str, int key_len, char *func_str, int func_len)
             break;
         }
     }
+    if (dst_ofs < 0)
+    {
+        func_str_r[0] = '\0';
+    }
+
     if (strcmp(func_str_r, "nil") == 0 || func_str_r[0] == '\0')
     {
         unset_requested = true;
