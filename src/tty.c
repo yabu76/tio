@@ -1293,6 +1293,10 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                         tio_printf("Turn off raw mode for non-interactive use");
                         break;
                 }
+                if (state != STATE_INTERACTIVE)
+                {
+                    tty_tcsetattr(device_fd);
+                }
                 break;
 
             case KEY_SHIFT_J:
@@ -1310,6 +1314,10 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                         option.raw_interactive = RAW_OFF;
                         tio_printf("Turn off raw mode for interactive use");
                         break;
+                }
+                if (state == STATE_INTERACTIVE)
+                {
+                    tty_tcsetattr(device_fd);
                 }
                 break;
 
