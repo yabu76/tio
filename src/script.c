@@ -40,6 +40,7 @@
 #include "fs.h"
 #include "timestamp.h"
 #include "termios.h"
+#include "version.h"
 
 #define MAX_BUFFER_SIZE 2000 // Maximum size of circular buffer
 #define READ_LINE_SIZE 4096 // read_line buffer length
@@ -49,6 +50,14 @@ static lua_State *script_interp = NULL;
 
 // clang-format off
 static char script_init[] =
+"tio.C = {\n"
+"    EXPECT_CLEANUP_READ_SIZE = 4096,\n"
+"    WAIT_FOREVER = 0,\n"
+"    NOWAIT = -1,\n"
+"}\n"
+"tio.clear_screen = function()\n"
+"    io.write('\\x1bc')\n"
+"end\n"
 "tio.set = function(arg)\n"
 "    local dtr = arg.DTR or -1\n"
 "    local rts = arg.RTS or -1\n"
@@ -58,10 +67,6 @@ static char script_init[] =
 "    local ri = arg.RI or -1\n"
 "    tio.line_set(dtr, rts, cts, dsr, cd, ri)\n"
 "end\n"
-"tio.C = {}\n"
-"tio.C.EXPECT_CLEANUP_READ_SIZE = 4096\n"
-"tio.C.WAIT_FOREVER = 0\n"
-"tio.C.NOWAIT = -1\n"
 "tio.expect = function(pattern, timeout)\n"
 "    local str = ''\n"
 "    while true do\n"
@@ -519,6 +524,207 @@ static int api_ttysearch(lua_State *L)
     return 1;
 }
 
+// lua: tio.send_break()
+static int api_send_break(lua_State *L)
+{
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
+    tcsendbreak(device_fd, 0);
+    return 0;
+}
+
+// lua: tio.set_local_echo(boolean local_echo)
+static int api_set_local_echo(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    if (arg_num == 0)
+    {
+        option.local_echo = true;
+        return 0;
+    }
+    if ( ! (lua_isboolean(L, 1) || lua_isnil(L, 1)) )
+    {
+        return luaL_error(L, "argument is not boolean");
+    }
+    option.local_echo = lua_toboolean(L, 1);
+    return 0;
+}
+
+// lua: tio.set_log(boolean log)
+static int api_set_log(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    if (arg_num == 0)
+    {
+        option.log = true;
+    }
+    else /* arg_num > 0 */
+    {
+        if ( ! (lua_isboolean(L, 1) || lua_isnil(L, 1)) )
+        {
+            return luaL_error(L, "argument is not boolean");
+        }
+        option.log = lua_toboolean(L, 1);
+    }
+
+    if (option.log)
+    {
+        if (log_open(option.log_filename) != 0)
+        {
+            option.log = false;
+            return luaL_error(L, "cant open log file");
+        }
+    }
+    else
+    {
+        log_close();
+    }
+    return 0;
+}
+
+// lua: tio.flush_data_io_buffer()
+static int api_flush_data_io_buffer(lua_State *L)
+{
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+    tcflush(device_fd, TCIOFLUSH);
+    return 0;
+}
+
+// lua: tio.set_input_mode(tio.C.IM_NORMAL | tio.C.IM_HEX | tio.C.IM_LINE)
+static int api_set_input_mode(lua_State *L)
+{
+    int input_mode = luaL_optinteger(L, 1, INPUT_MODE_NORMAL);
+    switch (input_mode)
+    {
+        case INPUT_MODE_NORMAL:
+        case INPUT_MODE_HEX:
+        case INPUT_MODE_LINE:
+            break;
+        default:
+            return luaL_error(L, "invalid input mode");
+    }
+    option.input_mode = input_mode;
+    return 0;
+}
+
+// lua: tio.set_output_mode(tio.C.OM_NORMAL | tio.C.OM_HEX)
+static int api_set_output_mode(lua_State *L)
+{
+    int output_mode = luaL_optinteger(L, 1, OUTPUT_MODE_NORMAL);
+    switch (output_mode)
+    {
+        case OUTPUT_MODE_NORMAL:
+        case OUTPUT_MODE_HEX:
+            break;
+        default:
+            return luaL_error(L, "invalid output mode");
+    }
+    option.output_mode = output_mode;
+    return 0;
+}
+
+// lua: tio.set_raw_mode(tio.C.RAW_OFF | tio.C.RAW_ON | tio.C.RAW_ON_NODELAY)
+static int api_set_raw_mode(lua_State *L)
+{
+    int raw_mode = luaL_optinteger(L, 1, RAW_ON_DELAY);
+    switch (raw_mode)
+    {
+        case RAW_OFF:
+        case RAW_ON_DELAY:
+        case RAW_ON_NODELAY:
+            break;
+        default:
+            return luaL_error(L, "invalid raw mode");
+    }
+    option.raw = raw_mode;
+    if (state != STATE_INTERACTIVE)
+    {
+        tty_tcsetattr(device_fd);
+    }
+    return 0;
+}
+
+// lua: tio.set_raw_mode_interactive(tio.C.RAW_OFF | tio.C.RAW_ON | tio.C.RAW_ON_NODELAY)
+static int api_set_raw_mode_interactive(lua_State *L)
+{
+    int raw_mode = luaL_optinteger(L, 1, RAW_ON_DELAY);
+    switch (raw_mode)
+    {
+        case RAW_OFF:
+        case RAW_ON_DELAY:
+        case RAW_ON_NODELAY:
+            break;
+        default:
+            return luaL_error(L, "invalid raw mode");
+    }
+    option.raw_interactive = raw_mode;
+    if (state == STATE_INTERACTIVE)
+    {
+        tty_tcsetattr(device_fd);
+    }
+    return 0;
+}
+
+// lua: tio.set_timestamp_mode(tio.C.TS_NONE | tio.C.TS_24HOUR | ...)
+static int api_set_timestamp_mode(lua_State *L)
+{
+    int timestamp_mode = luaL_optinteger(L, 1, TIMESTAMP_24HOUR);
+    switch (timestamp_mode)
+    {
+        case TIMESTAMP_NONE:
+        case TIMESTAMP_24HOUR:
+        case TIMESTAMP_24HOUR_START:
+        case TIMESTAMP_24HOUR_DELTA:
+        case TIMESTAMP_ISO8601:
+        case TIMESTAMP_EPOCH:
+        case TIMESTAMP_EPOCH_USEC:
+            break;
+        default:
+            return luaL_error(L, "invalid timestamp mode");
+    }
+    option.timestamp = timestamp_mode;
+    return 0;
+}
+
+// lua: tio.exec_shell_command(string:command)
+int api_exec_shell_command(lua_State *L)
+{
+    const char *command = luaL_checkstring(L, 1);
+    if (command == NULL)
+    {
+        return luaL_error(L, "no command");
+    }
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+    int result;
+    state_t state_orig = state;
+    state = STATE_EXEC_SHELL_COMMAND;
+    tty_tcsetattr(device_fd);
+    result = execute_shell_command(device_fd, command);
+    state = state_orig;
+    tty_tcsetattr(device_fd);
+    if (result < 0)
+    {
+        return luaL_error(L, "command failed.");
+    }
+    return 0;
+}
+
+// lua: tio.get_version()
+static int api_get_version(lua_State *L)
+{
+    lua_pushstring(L, VERSION);
+    return 1;
+}
+
 static void script_buffer_run(lua_State *L, const char *script_buffer)
 {
     int error;
@@ -561,6 +767,19 @@ static const struct luaL_Reg tio_lib[] =
     { "read", api_read},
     { "readline", api_readline},
     { "ttysearch", api_ttysearch},
+
+    { "send_break", api_send_break},
+    { "set_local_echo", api_set_local_echo},
+    { "set_log", api_set_log},
+    { "flush_data_io_buffer", api_flush_data_io_buffer},
+    { "set_input_mode", api_set_input_mode},
+    { "set_output_mode", api_set_output_mode},
+    { "set_raw_mode", api_set_raw_mode},
+    { "set_raw_mode_interactive", api_set_raw_mode_interactive},
+    { "set_timestamp_mode", api_set_timestamp_mode},
+    { "exec_shell_command", api_exec_shell_command},
+    { "get_version", api_get_version},
+
     {NULL, NULL}
 };
 // clang-format on
@@ -577,22 +796,60 @@ static void script_load(lua_State *L)
     }
 }
 
-static void script_set_global(lua_State *L, const char *name, long value)
+static void script_set_global_integer(lua_State *L, const char *name, int value)
 {
-    lua_pushnumber(L, value);
+    lua_pushinteger(L, value);
     lua_setglobal(L, name);
 }
 
 static void script_set_globals(lua_State *L)
 {
-    script_set_global(L, "toggle", 2);
-    script_set_global(L, "high", 1);
-    script_set_global(L, "low", 0);
-    script_set_global(L, "XMODEM_SUM", XMODEM_SUM);
-    script_set_global(L, "XMODEM_CRC", XMODEM_CRC);
-    script_set_global(L, "XMODEM_1K", XMODEM_1K);
-    script_set_global(L, "YMODEM", YMODEM);
+    script_set_global_integer(L, "toggle", 2);
+    script_set_global_integer(L, "high", 1);
+    script_set_global_integer(L, "low", 0);
+    script_set_global_integer(L, "XMODEM_SUM", XMODEM_SUM);
+    script_set_global_integer(L, "XMODEM_CRC", XMODEM_CRC);
+    script_set_global_integer(L, "XMODEM_1K", XMODEM_1K);
+    script_set_global_integer(L, "YMODEM", YMODEM);
 }
+
+static void script_set_field_integer(lua_State *L, const char *name, int value)
+{
+    lua_pushinteger(L, value);
+    lua_setfield(L, -2, name);
+}
+
+static void script_set_consts(lua_State *L)
+{
+    lua_getglobal(L, "tio");
+    lua_getfield(L, -1, "C");
+
+    script_set_field_integer(L, "IM_NORMAL", INPUT_MODE_NORMAL);
+    script_set_field_integer(L, "IM_HEX", INPUT_MODE_HEX);
+    script_set_field_integer(L, "IM_LINE", INPUT_MODE_LINE);
+    script_set_field_integer(L, "OM_NORMAL", OUTPUT_MODE_NORMAL);
+    script_set_field_integer(L, "OM_HEX", OUTPUT_MODE_HEX);
+    script_set_field_integer(L, "RAW_OFF", RAW_OFF);
+    script_set_field_integer(L, "RAW_ON", RAW_ON_DELAY);
+    script_set_field_integer(L, "RAW_ON_NODELAY", RAW_ON_NODELAY);
+    script_set_field_integer(L, "TS_OFF", TIMESTAMP_NONE);
+    script_set_field_integer(L, "TS_24HOUR", TIMESTAMP_24HOUR);
+    script_set_field_integer(L, "TS_24HOUR_START", TIMESTAMP_24HOUR_START);
+    script_set_field_integer(L, "TS_24HOUR_DELTA", TIMESTAMP_24HOUR_DELTA);
+    script_set_field_integer(L, "TS_ISO8601", TIMESTAMP_ISO8601);
+    script_set_field_integer(L, "TS_EPOCH", TIMESTAMP_EPOCH);
+    script_set_field_integer(L, "TS_EPOCH_USEC", TIMESTAMP_EPOCH_USEC);
+    script_set_field_integer(L, "LN_TOGGLE", 2);
+    script_set_field_integer(L, "LN_HIGH", 1);
+    script_set_field_integer(L, "LN_LOW", 0);
+    script_set_field_integer(L, "XM_SUM", XMODEM_SUM);
+    script_set_field_integer(L, "XM_CRC", XMODEM_CRC);
+    script_set_field_integer(L, "XM_1K", XMODEM_1K);
+    script_set_field_integer(L, "YM_NORMAL", YMODEM);
+
+    lua_pop(L, 2);
+}
+
 
 #if LUA_VERSION_NUM >= 502
 static int luaopen_tio(lua_State *L)
@@ -635,6 +892,7 @@ static lua_State *script_interp_new(void)
 
     // Initialize globals
     script_set_globals(L);
+    script_set_consts(L);
 
     // Execute script-init file
     if (option.script_init_filename) {
