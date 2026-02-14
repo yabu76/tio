@@ -426,7 +426,7 @@ Toggle line timestamp mode
 .IP "\fBctrl-t v"
 Show version
 .IP "\fBctrl-t x"
-Send file using the XMODEM-1K or XMODEM-CRC protocol (prompts for file name and protocol)
+Send file using the XMODEM-1K or XMODEM-CRC or XMODEM-SUM protocol (prompts for file name and protocol)
 .IP "\fBctrl-t y"
 Send file using the YMODEM protocol (prompts for file name)
 .IP "\fBctrl-t ctrl-t"
@@ -468,7 +468,7 @@ Returns the tio table.
 .IP "\fBtio.send(file, protocol)"
 Send file using x/y-modem protocol.
 
-Protocol can be any of XMODEM_1K, XMODEM_CRC, YMODEM.
+Protocol can be any of XMODEM_1K, XMODEM_CRC, XMODEM_SUM, YMODEM.
 
 .IP "\fBtio.ttysearch()"
 Search for serial devices.
