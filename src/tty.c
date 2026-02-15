@@ -558,15 +558,17 @@ void *tty_stdin_input_thread(void *arg)
                             tio_printf("Flushed data I/O buffers");
                             tcflush(device_fd, TCIOFLUSH);
                             break;
-#if defined(__linux__)
                         case KEY_SHIFT_R:
                             if (state == STATE_EXEC_SHELL_COMMAND)
                             {
+#if defined(__linux__)
                                 tio_printf("Terminated shell command");
                                 terminate_shell_command();
+#else
+                                tio_warning_printf("The previous command is still running");
+#endif
                             }
                             break;
-#endif
                         default:
                             break;
                     }
@@ -1390,7 +1392,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             case KEY_SHIFT_R:
                 /* Execute shell command */
                 tio_printf("Execute shell command with I/O redirected to device");
-                if (tio_subcmd_readln("Enter command: "))
+                if (tio_subcmd_readln("Enter command (\"?\" prefix prevents redirection of stderr): "))
                 {
                     state_t state_orig = state;
                     state = STATE_EXEC_SHELL_COMMAND;
