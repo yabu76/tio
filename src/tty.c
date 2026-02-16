@@ -3274,6 +3274,7 @@ int tty_connect(void)
                                     {
                                         // Carriage return
                                         readline_input(readline_ctx, input_char);
+                                        print_prompt(readline_ctx);
 
                                         // Write current line to tty device
                                         char *rl_line = readline_get(readline_ctx);

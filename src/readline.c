@@ -39,6 +39,17 @@ typedef struct readline_s
     int escape;
 } readline_t;
 
+void print_prompt(readline_t *rl)
+{
+    clear_line();
+    printf("%s", rl->prompt);
+    printf("\r"); // Move the cursor back to the beginning
+    for (int i = 0; i < rl->prompt_length; ++i)
+    {
+        printf("\x1b[C"); // Move the cursor right
+    }
+}
+
 void print_line(readline_t *rl)
 {
     clear_line();

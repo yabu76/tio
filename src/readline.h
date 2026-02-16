@@ -32,3 +32,4 @@ void readline_set_prompt(readline_t *rl, const char *prompt);
 void readline_prompt_for_input(readline_t *rl);
 void readline_input(readline_t *rl, char input_char);
 char *readline_get(readline_t *rl);
+void print_prompt(readline_t *rl);
