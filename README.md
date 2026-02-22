@@ -424,9 +424,15 @@ line may be returned as a second return value.
 
 #### `tio.write(string)`
 
-Write string to serial device.
+Write string to serial device without any of input-editing, output-mapping or output-delay.
 
-Returns the `tio` table.
+Returns the tio table on success or nil on error.
+
+#### `tio.twrite(string)`
+
+Write string to serial device with input-editing, output-mapping and output-delay.
+
+Returns the tio table on success or nil on error.
 
 #### `tio.send(file, protocol)`
 

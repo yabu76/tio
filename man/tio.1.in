@@ -469,9 +469,14 @@ Returns a string on success and nil on timeout.  On timeout a partially read
 line may be returned as a second return value.
 
 .IP "\fBtio.write(string)"
-Write string to serial device.
+Write string to serial device without Input-editing, Output-mapping nor Output-delay.
 
-Returns the tio table.
+Returns the tio table on success or nil on error.
+
+.IP "\fBtio.twrite(string)"
+Write string to serial device with Input-editing, Output-mapping and Output-delay.
+
+Returns tio table on success or nil on error.
 
 .IP "\fBtio.send(file, protocol)"
 Send file using x/y-modem protocol.

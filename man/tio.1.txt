@@ -381,9 +381,14 @@ SCRIPT API
              On success, returns the string that was read as second return value.  Also emits a single timestamp to stdout and log file per options.timestamp and options.log.
 
        write(string)
-             Write string to serial device.
+             Write string to serial device without Input-editing, Output-mapping nor Output-delay.
 
-             Returns number of bytes written on success or -1 on error.
+             Returns the tio table on success or nil on error.
+
+       twrite(string)
+             Write string to serial device with Input-editing, Output-mapping and Output-delay.
+
+             Returns the tio table on success or nil on error.
 
        send(file, protocol)
              Send file using x/y-modem protocol.
