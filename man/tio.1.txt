@@ -40,6 +40,28 @@ OPTIONS
 
               Set output delay [ms] inserted between each sent line (default: 0).
 
+           --line-init <line-states>
+
+              Sets the state of control lines to be forced after opening a serial port using the following key value pair format in the line-states field: <key>=<value> (default: DTR=as-is,RTS=as-is).
+
+              Each key represents a serial line. The following keys are available:
+
+              DTR     Data Terminal Ready
+
+              RTS     Request To Send
+
+              Each value represents a state of the serial line. The following keys are available:
+
+              high    High
+
+              low     Low
+
+              as-is   Do nothing
+
+              If defining more than one key value pair, the pairs must be comma separated.
+
+              If as-is is specified, the state of the line will depend on the device driver.
+
            --line-pulse-duration <duration>
 
               Set the pulse duration [ms] of each serial port line using the following key value pair format in the duration field: <key>=<value>
@@ -444,6 +466,8 @@ CONFIGURATION FILE
        output-delay             Set output character delay
 
        output-line-delay        Set output line delay
+
+       line-init                Set the state of control lines to be forced after opening driver
 
        line-pulse-duration      Set line pulse duration
 

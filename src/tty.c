@@ -481,6 +481,55 @@ static const char *tty_line_name(int mask)
     }
 }
 
+void tty_line_init(int fd)
+{
+    if (option.dtr_init_value != LINE_AS_IS)
+    {
+        int dtr = TIOCM_DTR;
+        if (option.dtr_init_value == LINE_HIGH)
+        {
+            if (ioctl(fd, TIOCMBIC, &dtr) < 0)
+            {
+                tio_warning_printf("Could not set DTR to HIGH (%s)", strerror(errno));
+            }
+        }
+        else if (option.dtr_init_value == LINE_LOW)
+        {
+            if (ioctl(fd, TIOCMBIS, &dtr) < 0)
+            {
+                tio_warning_printf("Could not set DTR to LOW (%s)", strerror(errno));
+            }
+        }
+        else
+        {
+            tio_warning_printf("Invalid value for DTR setting (%d)", option.dtr_init_value);
+        }
+    }
+
+    if ( ! (option.rts_init_value == LINE_AS_IS || option.flow == FLOW_HARD) )
+    {
+        int rts = TIOCM_RTS;
+        if (option.rts_init_value == LINE_HIGH)
+        {
+            if (ioctl(fd, TIOCMBIC, &rts) < 0)
+            {
+                tio_warning_printf("Could not set RTS to HIGH (%s)", strerror(errno));
+            }
+        }
+        else if (option.rts_init_value == LINE_LOW)
+        {
+            if (ioctl(fd, TIOCMBIS, &rts) < 0)
+            {
+                tio_warning_printf("Could not set RTS to LOW (%s)", strerror(errno));
+            }
+        }
+        else
+        {
+            tio_warning_printf("Invalid value for RTS setting (%d)", option.rts_init_value);
+        }
+    }
+}
+
 void tty_line_set(int fd, tty_line_config_t line_config[])
 {
     static int state;
@@ -1570,6 +1619,9 @@ const char* get_serial_port_type(const char* port_name)
         return "";
     }
 
+    // Initialize control lines
+    tty_line_init(device_fd);
+
     // Get serial port information
     if (ioctl(fd, TIOCGSERIAL, &serial_info) == -1)
     {
@@ -2543,6 +2595,12 @@ int tty_connect(void)
         tio_error_printf_silent("Could not open tty device (%s)", strerror(errno));
         goto error_open;
     }
+
+    /*
+     * To avoid affecting devices that have specific meanings for lines,
+     * set up immediately after opening the device
+     */
+    tty_line_init(device_fd);
 
     /* Make sure device is of tty type */
     if (!isatty(device_fd))

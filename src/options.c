@@ -44,6 +44,7 @@ enum opt_t
     OPT_LOG_DIRECTORY,
     OPT_LOG_STRIP,
     OPT_LOG_APPEND,
+    OPT_LINE_INIT,
     OPT_LINE_PULSE_DURATION,
     OPT_RS485,
     OPT_RS485_CONFIG,
@@ -72,6 +73,8 @@ struct option_t option =
     .parity = PARITY_NONE,
     .output_delay = 0,
     .output_line_delay = 0,
+    .dtr_init_value = LINE_AS_IS,
+    .rts_init_value = LINE_AS_IS,
     .dtr_pulse_duration = 100,
     .rts_pulse_duration = 100,
     .cts_pulse_duration = 100,
@@ -142,6 +145,7 @@ void option_print_help(char *argv[])
     printf("  -p, --parity odd|even|none|mark|space  Parity (default: none)\n");
     printf("  -o, --output-delay <ms>                Output character delay (default: 0)\n");
     printf("  -O, --output-line-delay <ms>           Output line delay (default: 0)\n");
+    printf("      --line-init <lineset>              Set line initial states (default:DTR=as-is,RTS=as-is)\n");
     printf("      --line-pulse-duration <duration>   Set line pulse duration\n");
     printf("  -a, --auto-connect new|latest|direct   Automatic connect strategy (default: direct)\n");
     printf("      --exclude-devices <pattern>        Exclude devices by pattern\n");
@@ -312,6 +316,21 @@ const char *option_parity_to_string(parity_t parity)
             return "mark";
         case PARITY_SPACE:
             return "space";
+        default:
+            return "unknown";
+    }
+}
+
+const char *option_line_init_to_string(line_value_t line_val)
+{
+    switch (line_val)
+    {
+        case LINE_LOW:
+            return "low";
+        case LINE_HIGH:
+            return "high";
+        case LINE_AS_IS:
+            return "as-is";
         default:
             return "unknown";
     }
@@ -500,6 +519,77 @@ void option_parse_auto_connect(const char *arg, auto_connect_t *auto_connect)
             exit(EXIT_FAILURE);
         }
     }
+}
+
+void option_parse_line_init(const char *arg)
+{
+    bool token_found = true;
+    char *token = NULL;
+    char *buffer = strdup(arg);
+
+    assert(arg != NULL);
+
+    while (token_found == true)
+    {
+        if (token == NULL)
+        {
+            token = strtok(buffer,",");
+        }
+        else
+        {
+            token = strtok(NULL, ",");
+        }
+
+        if (token != NULL)
+        {
+            char keyname[11];
+            char value[11];
+
+            if (sscanf(token, "%10[^=]=%10s", keyname, value) == 2)
+            {
+                line_value_t *line;
+                if (strcmp(keyname, "DTR") == 0)
+                {
+                    line = &option.dtr_init_value;
+                }
+                else if (strcmp(keyname, "RTS") == 0)
+                {
+                    line = &option.rts_init_value;
+                }
+                else
+                {
+                    tio_error_print("Invalid line '%s'", keyname);
+                    exit(EXIT_FAILURE);
+                }
+                if (strcmp(value, "high") == 0)
+                {
+                    *line = LINE_HIGH;
+                }
+                else if (strcmp(value, "low") == 0)
+                {
+                    *line = LINE_LOW;
+                }
+                else if (strcmp(value, "as-is") == 0)
+                {
+                    *line = LINE_AS_IS;
+                }
+                else
+                {
+                    tio_error_print("Invalid value '%s'", value);
+                    exit(EXIT_FAILURE);
+                }
+            }
+            else
+            {
+                token_found = false;
+            }
+        }
+        else
+        {
+            token_found = false;
+        }
+    }
+    free(buffer);
 }
 
 void option_parse_line_pulse_duration(const char *arg)
@@ -833,6 +923,11 @@ void options_print()
     tio_printf(" Output line delay: %d", option.output_line_delay);
     tio_printf(" Automatic connect strategy: %s", option_auto_connect_state_to_string(option.auto_connect));
     tio_printf(" Automatic reconnect: %s", option.no_reconnect ? "true" : "false");
+    if ( ! (option.dtr_init_value == LINE_AS_IS && option.rts_init_value == LINE_AS_IS) )
+    {
+        tio_printf(" Line initial states: DTR=%s RTS=%s", option_line_init_to_string(option.dtr_init_value),
+                                                          option_line_init_to_string(option.rts_init_value));
+    }
     tio_printf(" Pulse duration: DTR=%d RTS=%d CTS=%d DSR=%d DCD=%d RI=%d", option.dtr_pulse_duration,
                                                                             option.rts_pulse_duration,
                                                                             option.cts_pulse_duration,
@@ -898,6 +993,7 @@ void options_parse(int argc, char *argv[])
             {"parity",               required_argument, 0, 'p'                     },
             {"output-delay",         required_argument, 0, 'o'                     },
             {"output-line-delay" ,   required_argument, 0, 'O'                     },
+            {"line-init",            required_argument, 0, OPT_LINE_INIT           },
             {"line-pulse-duration",  required_argument, 0, OPT_LINE_PULSE_DURATION },
             {"auto-connect",         required_argument, 0, 'a'                     },
             {"exclude-devices",      required_argument, 0, OPT_EXCLUDE_DEVICES     },
@@ -981,6 +1077,10 @@ void options_parse(int argc, char *argv[])
 
             case 'O':
                 option_string_to_integer(optarg, &option.output_line_delay, "output line delay", 0, INT_MAX);
+                break;
+
+            case OPT_LINE_INIT:
+                option_parse_line_init(optarg);
                 break;
 
             case OPT_LINE_PULSE_DURATION:

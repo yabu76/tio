@@ -171,6 +171,13 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
 
     config_get_integer(key_file, group, "output-delay", &option.output_delay, 0, INT_MAX);
     config_get_integer(key_file, group, "output-line-delay", &option.output_line_delay, 0, INT_MAX);
+    config_get_string(key_file, group, "line-init", &string, NULL);
+    if (string != NULL)
+    {
+        option_parse_line_init(string);
+        g_free((void *)string);
+        string = NULL;
+    }
     config_get_string(key_file, group, "line-pulse-duration", &string, NULL);
     if (string != NULL)
     {

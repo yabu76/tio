@@ -54,6 +54,8 @@ struct option_t
     parity_t parity;
     int output_delay;
     int output_line_delay;
+    line_value_t dtr_init_value;
+    line_value_t rts_init_value;
     int dtr_pulse_duration;
     int rts_pulse_duration;
     int cts_pulse_duration;
@@ -122,6 +124,7 @@ void option_parse_parity(const char *arg, parity_t *parity);
 void option_parse_output_mode(const char *arg, output_mode_t *mode);
 void option_parse_input_mode(const char *arg, input_mode_t *mode);
 
+void option_parse_line_init(const char *arg);
 void option_parse_line_pulse_duration(const char *arg);
 void option_parse_script_run(const char *arg, script_run_t *script_run);
 void option_parse_alert(const char *arg, alert_t *alert);

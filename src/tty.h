@@ -24,10 +24,14 @@
 #include <stdbool.h>
 #include <glib.h>
 
-#define LINE_HIGH true
-#define LINE_LOW false
-
 #define TOPOLOGY_ID_SIZE 4
+
+typedef enum
+{
+    LINE_LOW = 0,
+    LINE_HIGH,
+    LINE_AS_IS = 0x40,
+} line_value_t;
 
 typedef enum
 {

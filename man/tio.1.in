@@ -52,6 +52,37 @@ Set output delay [ms] inserted between each sent character (default: 0).
 Set output delay [ms] inserted between each sent line (default: 0).
 
 .TP
+.BR "    \-\-line\-init " \fI<line-states>
+
+Sets the state of control lines to be forced after opening a serial port
+using the following key value pair format
+in the line-states field:<key>=<value> (default: DTR=as-is,RTS=as-is).
+
+Each key represents a serial line. The following keys are available:
+
+.RS
+.TP 8n
+.IP \fBDTR
+Data Terminal Ready
+.IP \fBRTS
+Request To Send
+.P
+Each value represents a state of the serial line. The following keys are available:
+
+.RS
+.TP 8n
+.IP \fBhigh
+High
+.IP \fBlow
+Low
+.IP \fBas-is
+Do nothing
+.P
+If defining more than one key value pair, the pairs must be comma separated.
+
+If as-is is specified, the state of the line will depend on the device driver.
+
+.TP
 .BR "    \-\-line\-pulse\-duration " \fI<duration>
 
 Set the pulse duration [ms] of each serial port line using the following key
@@ -550,6 +581,8 @@ Set parity
 Set output character delay
 .IP "\fBoutput-line-delay"
 Set output line delay
+.IP "\fBline-init"
+Set state of control lines to be forced after opening driver
 .IP "\fBline-pulse-duration"
 Set line pulse duration
 .IP "\fBno-reconnect"
