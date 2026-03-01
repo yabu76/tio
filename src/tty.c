@@ -1459,6 +1459,33 @@ void tty_configure(void)
     }
 }
 
+int tcsetattr_dev(int fd, int action, const struct termios *t)
+{
+#if defined(__CYGWIN__)
+    /* cygwin's tcsetattr resets DTR/RTS. */
+    int ret;
+    static int state;
+
+    /* save line state */
+    if (ioctl(fd, TIOCMGET, &state) < 0)
+    {
+        tio_warning_printf("Could not get line state (%s)", strerror(errno));
+        return -1;
+    }
+    ret = tcsetattr(fd, action, t);
+
+    /* restore line state */
+    if (ioctl(fd, TIOCMSET, &state) < 0)
+    {
+        tio_warning_printf("Could not set line state (%s)", strerror(errno));
+        return -1;
+    }
+    return ret;
+#else
+    return tcsetattr(fd, action, t);
+#endif
+}
+
 void tty_reconfigure(void)
 {
     tty_configure();
@@ -1466,7 +1493,7 @@ void tty_reconfigure(void)
     if (connected)
     {
         /* Activate new port settings */
-        tcsetattr(device_fd, TCSANOW, &tio);
+        tcsetattr_dev(device_fd, TCSANOW, &tio);
     }
 }
 
@@ -2467,7 +2494,7 @@ void tty_disconnect(void)
 
 void tty_restore(void)
 {
-    tcsetattr(device_fd, TCSANOW, &tio_old);
+    tcsetattr_dev(device_fd, TCSANOW, &tio_old);
 
     if (option.rs485)
     {
@@ -2666,7 +2693,7 @@ int tty_connect(void)
     }
 
     /* Activate new port settings */
-    status = tcsetattr(device_fd, TCSANOW, &tio);
+    status = tcsetattr_dev(device_fd, TCSANOW, &tio);
     if (status == -1)
     {
         tio_error_printf_silent("Could not apply port settings (%s)", strerror(errno));
