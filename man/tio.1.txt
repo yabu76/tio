@@ -778,11 +778,19 @@ EXAMPLES
 
        Send file to device by sz command:
 
-              $ tio --exec "?sz -b file" /dev/ttyUSB0
+              $ tio --exec '?sz -b file' /dev/ttyUSB0
 
        Receive file from device by rz command:
 
-              $ tio --exec "?rz -b" /dev/ttyUSB0
+              $ tio --exec '?rz -b' /dev/ttyUSB0
+
+       Send file to device by gkermit command:
+
+              $ tio --exec '?gkermit -XSs file' /dev/ttyUSB0
+
+       Receive file from device by gkermit command:
+
+              $ tio --exec '?gkermit -XSr' /dev/ttyUSB0
 
 WEBSITE
        Visit https://tio.github.io

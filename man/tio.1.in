@@ -948,6 +948,16 @@ Receive file from device by rz command:
 
 $ tio --exec '?rz -b' /dev/ttyUSB0
 
+.TP
+Send file to device by gkermit command:
+
+$ tio --exec '?gkermit -XSs file' /dev/ttyUSB0
+
+.TP
+Receive file from device by gkermit command:
+
+$ tio --exec '?gkermit -XSr' /dev/ttyUSB0
+
 
 .SH "WEBSITE"
 .PP
