@@ -157,7 +157,7 @@ void option_print_help(char *argv[])
     printf("  -p, --parity odd|even|none|mark|space  Parity (default: none)\n");
     printf("  -o, --output-delay <ms>                Output character delay (default: 0)\n");
     printf("  -O, --output-line-delay <ms>           Output line delay (default: 0)\n");
-    printf("      --output-line-delay-char cr|lf     Output line delay character(default: lf)\n");
+    printf("      --output-line-delay-char cr|lf     Output line delay trigger character (default: lf)\n");
     printf("      --line-pulse-duration <duration>   Set line pulse duration\n");
     printf("  -a, --auto-connect new|latest|direct   Automatic connect strategy (default: direct)\n");
     printf("      --exclude-devices <pattern>        Exclude devices by pattern\n");

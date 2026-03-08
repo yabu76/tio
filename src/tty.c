@@ -1137,6 +1137,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf(" ctrl-%c i       Toggle input mode", option.prefix_key);
                 tio_printf(" ctrl-%c j       Toggle raw mode for non-interactive use", option.prefix_key);
                 tio_printf(" ctrl-%c J       Toggle raw mode for interactive use", option.prefix_key);
+                tio_printf(" ctrl-%c k       Set key-script mappings", option.prefix_key);
                 tio_printf(" ctrl-%c l       Clear screen", option.prefix_key);
                 tio_printf(" ctrl-%c L       Show line states", option.prefix_key);
                 tio_printf(" ctrl-%c m       Change mapping of characters on input or output", option.prefix_key);
