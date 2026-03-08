@@ -200,7 +200,7 @@ static int api_msleep(lua_State *L)
 }
 
 // lua: tio.line_set(dtr,rts,cts,dsr,cd,ri)
-static int line_set(lua_State *L)
+static int api_line_set(lua_State *L)
 {
     tty_line_config_t line_config[6] = { };
 
@@ -256,6 +256,33 @@ static int line_set(lua_State *L)
     tty_line_set(device_fd, line_config);
 
     return 0;
+}
+
+// lua: tio.line_get()
+static int api_line_get(lua_State *L)
+{
+    int line_state;
+    const int LN_LOW = 0;
+    const int LN_HIGH = 1;
+
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
+    if (ioctl(device_fd, TIOCMGET, &line_state) < 0)
+    {
+        return luaL_error(L, "Could not get line state");
+    }
+
+    lua_pushinteger(L, (line_state & TIOCM_DTR) ? LN_LOW : LN_HIGH);
+    lua_pushinteger(L, (line_state & TIOCM_RTS) ? LN_LOW : LN_HIGH);
+    lua_pushinteger(L, (line_state & TIOCM_CTS) ? LN_LOW : LN_HIGH);
+    lua_pushinteger(L, (line_state & TIOCM_DSR) ? LN_LOW : LN_HIGH);
+    lua_pushinteger(L, (line_state & TIOCM_CD) ? LN_LOW : LN_HIGH);
+    lua_pushinteger(L, (line_state & TIOCM_RI) ? LN_LOW : LN_HIGH);
+
+    return 6;
 }
 
 // lua: tio.send(file, protocol)
@@ -718,6 +745,13 @@ int api_exec_shell_command(lua_State *L)
     return 0;
 }
 
+// lua: tio.get_state()
+static int api_get_state(lua_State *L)
+{
+    lua_pushinteger(L, state);
+    return 1;
+}
+
 // lua: tio.get_version()
 static int api_get_version(lua_State *L)
 {
@@ -760,7 +794,8 @@ static const struct luaL_Reg tio_lib[] =
     { "echo", api_echo},
     { "sleep", api_sleep},
     { "msleep", api_msleep},
-    { "line_set", line_set},
+    { "line_set", api_line_set},
+    { "line_get", api_line_get},
     { "send", api_send},
     { "write", api_write},
     { "twrite", api_twrite},
@@ -778,6 +813,7 @@ static const struct luaL_Reg tio_lib[] =
     { "set_raw_mode_interactive", api_set_raw_mode_interactive},
     { "set_timestamp_mode", api_set_timestamp_mode},
     { "exec_shell_command", api_exec_shell_command},
+    { "get_state", api_get_state},
     { "get_version", api_get_version},
 
     {NULL, NULL}
@@ -846,6 +882,11 @@ static void script_set_consts(lua_State *L)
     script_set_field_integer(L, "XM_CRC", XMODEM_CRC);
     script_set_field_integer(L, "XM_1K", XMODEM_1K);
     script_set_field_integer(L, "YM_NORMAL", YMODEM);
+    script_set_field_integer(L, "SA_INTERACTIVE", STATE_INTERACTIVE);
+    script_set_field_integer(L, "SA_STARTING", STATE_STARTING);
+    script_set_field_integer(L, "SA_PIPED_INPUT", STATE_PIPED_INPUT);
+    script_set_field_integer(L, "SA_EXEC_SHELL_COMMAND", STATE_EXEC_SHELL_COMMAND);
+    script_set_field_integer(L, "SA_XYMODEM", STATE_XYMODEM);
 
     lua_pop(L, 2);
 }
