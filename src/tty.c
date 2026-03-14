@@ -179,6 +179,7 @@ static struct termios tio, tio_raw, tio_old, stdout_new, stdout_old, stdin_new, 
 unsigned long rx_total = 0, tx_total = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
+static bool tty_tcsetattr_first = true;
 static void (*printchar)(char c);
 static int device_fd;
 static char hex_chars[2];
@@ -256,28 +257,46 @@ raw_t tty_get_raw_mode(void)
     }
 }
 
+/* Activate or change port settings */
 int tty_tcsetattr(int fd)
 {
+    static struct termios tio_cur;
+    static int baudrate_cur;
+
     if ( ! connected )
     {
         return -1;
     }
 
-    /* Activate or change port settings */
-    int status;
+    int ret = 0;
     raw_t raw = tty_get_raw_mode();
-    if (raw == RAW_OFF)
-    {
-        status = tcsetattr(fd, TCSANOW, &tio);
+    struct termios *tiop = (raw == RAW_OFF) ? &tio : &tio_raw;
+
+    /* If no need to change, no-op and return */
+    if (tty_tcsetattr_first == false &&
+        memcmp(&tio_cur, tiop, sizeof(struct termios)) == 0 &&
+        baudrate_cur == option.baudrate) {
+        tio_debug_printf("same termios. skip tty_tcsetattr.");
+        return 0;
     }
-    else
+
+#if defined(__CYGWIN__)
+    int line_state;
+
+    /* save line state for buggy tcsetattr */
+    if (ioctl(fd, TIOCMGET, &line_state) < 0)
     {
-        status = tcsetattr(fd, TCSANOW, &tio_raw);
+        tio_warning_printf("Could not get line state (%s)", strerror(errno));
+        return -1;
     }
-    if (status == -1)
+#endif
+
+    if (tcsetattr(fd, TCSANOW, tiop) == -1)
     {
         tio_error_printf_silent("Could not apply port settings (%s)", strerror(errno));
-        return -1;
+        tty_tcsetattr_first = true;
+        ret = -1;
+        goto tcsetattr_error_end;
     }
 
     /* Set arbitrary baudrate (only works on supported platforms) */
@@ -286,11 +305,55 @@ int tty_tcsetattr(int fd)
         if (setspeed(device_fd, option.baudrate) != 0)
         {
             tio_error_printf_silent("Could not set baudrate speed (%s)", strerror(errno));
-            return -1;
+            tty_tcsetattr_first = true;
+            ret = -1;
+            goto setspeed_error_end;
         }
     }
 
-    return 0;
+    /* Port settings changed successfully */
+    memcpy(&tio_cur, tiop, sizeof(tio_cur));
+    baudrate_cur = option.baudrate;
+    tty_tcsetattr_first = false;
+
+ tcsetattr_error_end:
+ setspeed_error_end:
+
+#if defined(__CYGWIN__)
+    /* restore line state for buggy tcsetattr */
+    if (option.flow == FLOW_HARD)
+    {
+        /* hardware flow control */
+        /* touch DTR only, don't touch RTS */
+        int tiocm_dtr = TIOCM_DTR;
+        int action = (line_state & TIOCM_DTR) ? TIOCMBIS /* DTR=LOW */ : TIOCMBIC /* DTR=HIGH */ ;
+
+        tio_debug_printf("hard flow : tiocm_dtr=%c, action=%c",
+                         (line_state & TIOCM_DTR) ? '1' : '0', (line_state & TIOCM_DTR) ? 'C' : 'S');
+
+        if (ioctl(fd, action, &tiocm_dtr) < 0)
+        {
+            tio_warning_printf("Could not set line state (%s)", strerror(errno));
+            ret = -1;
+        }
+    }
+    else
+    {
+        /* not hardware flow control */
+        /* restore DTR and RTS at the same time */
+
+        tio_debug_printf("non-hard flow : line_state=0x%x, TIOCM_DTR=0x%x, TIOCM_RTS=0x%x",
+                         line_state, TIOCM_DTR, TIOCM_RTS);
+
+        if (ioctl(fd, TIOCMSET, &line_state) < 0)
+        {
+            tio_warning_printf("Could not set line state (%s)", strerror(errno));
+            ret = -1;
+        }
+    }
+#endif
+
+    return ret;
 }
 
 void tty_sync(int fd)
@@ -2951,6 +3014,7 @@ int tty_connect(void)
     }
 
     /* Activate new port settings and set speed for non-interactive phase */
+    tty_tcsetattr_first = true;
     status = tty_tcsetattr(device_fd);
     if (status == -1)
     {
