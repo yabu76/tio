@@ -151,6 +151,7 @@ typedef enum
 } sub_command_t;
 
 #define MLINE_MAX 4096
+#define INKEY_CHARS_MAX 16
 
 // clang-format off
 const char random_array[] =
@@ -190,10 +191,12 @@ static char *tty_buffer_write_ptr = tty_buffer;
 static pthread_t thread;
 static int pipefd[2];
 static pthread_mutex_t mutex_input_ready = PTHREAD_MUTEX_INITIALIZER;
-static char line[PATH_MAX], mline[MLINE_MAX];
+char line[PATH_MAX], mline[MLINE_MAX];
+char inkey_chars[INKEY_CHARS_MAX];
 static size_t listing_device_name_length_max = 0;
 static readline_t *readline_ctx = NULL;
 static readline_t *subcmd_readline_ctx = NULL;
+static readline_t *script_repl_readline_ctx = NULL;
 
 static void optional_local_echo(char c)
 {
@@ -327,10 +330,6 @@ int tty_tcsetattr(int fd)
         /* touch DTR only, don't touch RTS */
         int tiocm_dtr = TIOCM_DTR;
         int action = (line_state & TIOCM_DTR) ? TIOCMBIS /* DTR=LOW */ : TIOCMBIC /* DTR=HIGH */ ;
-
-        tio_debug_printf("hard flow : tiocm_dtr=%c, action=%c",
-                         (line_state & TIOCM_DTR) ? '1' : '0', (line_state & TIOCM_DTR) ? 'C' : 'S');
-
         if (ioctl(fd, action, &tiocm_dtr) < 0)
         {
             tio_warning_printf("Could not set line state (%s)", strerror(errno));
@@ -341,10 +340,6 @@ int tty_tcsetattr(int fd)
     {
         /* not hardware flow control */
         /* restore DTR and RTS at the same time */
-
-        tio_debug_printf("non-hard flow : line_state=0x%x, TIOCM_DTR=0x%x, TIOCM_RTS=0x%x",
-                         line_state, TIOCM_DTR, TIOCM_RTS);
-
         if (ioctl(fd, TIOCMSET, &line_state) < 0)
         {
             tio_warning_printf("Could not set line state (%s)", strerror(errno));
@@ -828,12 +823,63 @@ static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int d
     }
 }
 
-static int tio_subcmd_readln(const char *title_prompt)
+int tty_inkey(int mseconds)
+{
+    int ret;
+
+    memset(inkey_chars, 0, INKEY_CHARS_MAX);
+
+    if ((ret = read_poll(pipefd[0], &inkey_chars[0], 1, (int)mseconds)) <= 0)
+    {
+        return ret;
+    }
+    if ((ret = read_poll(pipefd[0], &inkey_chars[1], INKEY_CHARS_MAX - 2, 0)) < 0)
+    {
+        return ret;
+    }
+    return ret + 1;
+}
+
+int tty_simple_readln(const char *prompt)
+{
+    char *p = line;
+
+    /* print prompt */
+    if (prompt && (prompt[0] != '\0')) {
+        tio_printf_raw("%s", prompt);
+    }
+
+    /* Read line, accept BS and DEL as rubout characters */
+    for (p = line ; p < &line[PATH_MAX-1]; )
+    {
+        if (read(pipefd[0], p, 1) > 0)
+        {
+            if (*p == 0x08 || *p == 0x7f)
+            {
+                if (p > line)
+                {
+                    write(STDOUT_FILENO, "\b \b", 3);
+                    p--;
+                }
+                continue;
+            }
+            write(STDOUT_FILENO, p, 1);
+            if (*p == '\r') break;
+            p++;
+        }
+    }
+    write(STDOUT_FILENO, "\n", 1);
+    *p = 0;
+
+    return (p - line);
+}
+
+static int tty_readln(readline_t *ctx, const char *title_prompt)
 {
     if (title_prompt && (title_prompt[0] != '\0')) {
         tio_printf_raw("%s\r\n", title_prompt);
     }
-    readline_prompt_for_input(subcmd_readline_ctx);
+    readline_prompt_for_input(ctx);
 
     /* Read line with line edit and history. */
     char c;
@@ -841,14 +887,24 @@ static int tio_subcmd_readln(const char *title_prompt)
     {
         if (read(pipefd[0], &c, 1) > 0)
         {
-            readline_input(subcmd_readline_ctx, c);
+            readline_input(ctx, c);
             if (c == '\r') break;
         }
     }
-    strncpy(line, readline_get(subcmd_readline_ctx), PATH_MAX - 1);
+    strncpy(line, readline_get(ctx), PATH_MAX - 1);
     line[PATH_MAX - 1] = 0;
 
     return strlen(line);
+}
+
+static int tty_script_repl_readln()
+{
+    return tty_readln(script_repl_readline_ctx, "");
+}
+
+int tty_subcmd_readln(const char *title_prompt)
+{
+    return tty_readln(subcmd_readline_ctx, title_prompt);
 }
 
 void tty_output_mode_set(output_mode_t mode)
@@ -911,7 +967,7 @@ static void handle_script_repl(void)
     strcpy(mline, "");
     while (true)
     {
-        tio_subcmd_readln("");
+        tty_script_repl_readln();
         if (strcmp(line, "@exit") == 0)
             break;
         line_len = strlen(line);
@@ -1009,7 +1065,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 {
                     case KEY_0:
                         tio_printf("Send file with XMODEM-1K");
-                        if (tio_subcmd_readln("Enter file name: "))
+                        if (tty_subcmd_readln("Enter file name: "))
                         {
                             int ret;
 
@@ -1022,7 +1078,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
                     case KEY_1:
                         tio_printf("Send file with XMODEM-CRC");
-                        if (tio_subcmd_readln("Enter file name: "))
+                        if (tty_subcmd_readln("Enter file name: "))
                         {
                             int ret;
 
@@ -1035,7 +1091,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
                     case KEY_2:
                         tio_printf("Receive file with XMODEM-CRC");
-                        if (tio_subcmd_readln("Enter file name: "))
+                        if (tty_subcmd_readln("Enter file name: "))
                         {
                             int ret;
 
@@ -1048,7 +1104,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
                     case KEY_3:
                         tio_printf("Send file with XMODEM-SUM");
-                        if (tio_subcmd_readln("Enter file name: "))
+                        if (tty_subcmd_readln("Enter file name: "))
                         {
                             int ret;
 
@@ -1061,7 +1117,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
                     case KEY_4:
                         tio_printf("Receive file with XMODEM-SUM");
-                        if (tio_subcmd_readln("Enter file name: "))
+                        if (tty_subcmd_readln("Enter file name: "))
                         {
                             int ret;
 
@@ -1389,7 +1445,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
             case KEY_K:
                 /* Set keymap */
-                tio_subcmd_readln("Enter keymap @<key>=<script-file>|!<script> :");
+                tty_subcmd_readln("Enter keymap @<key>=<script-file>|!<script> :");
                 option_parse_key_mappings(line);
                 break;
 
@@ -1441,7 +1497,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             case KEY_R:
                 /* Run script */
                 tio_printf("Run Lua script");
-                tio_subcmd_readln("Enter file name or \"!\" lua commands or \"@\" direction to interpreter: ");
+                tty_subcmd_readln("Enter file name or \"!\" lua commands or \"@\" direction to interpreter: ");
                 if (strcmp(line, "@repl") == 0)
                 {
                     handle_script_repl();
@@ -1456,7 +1512,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
             case KEY_SHIFT_R:
                 /* Execute shell command */
                 tio_printf("Execute shell command with I/O redirected to device");
-                if (tio_subcmd_readln("Enter command (\"?\" prefix prevents redirection of stderr): "))
+                if (tty_subcmd_readln("Enter command (\"?\" prefix prevents redirection of stderr): "))
                 {
                     state_t state_orig = state;
                     state = STATE_EXEC_SHELL_COMMAND;
@@ -1522,7 +1578,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
             case KEY_Y:
                 tio_printf("Send file with YMODEM");
-                if (tio_subcmd_readln("Enter file name: "))
+                if (tty_subcmd_readln("Enter file name: "))
                 {
                     int ret;
                     state_t state_orig = state;
@@ -2915,14 +2971,15 @@ void tty_init(void)
     // Initialize readline like history
     readline_ctx = readline_create();
     subcmd_readline_ctx = readline_create();
-    if (readline_ctx == NULL || subcmd_readline_ctx == NULL)
+    script_repl_readline_ctx = readline_create();
+    if (readline_ctx == NULL || subcmd_readline_ctx == NULL || script_repl_readline_ctx == NULL)
     {
         tio_error_printf("Could not allocate readline buffer.");
         exit(EXIT_FAILURE);
     }
     readline_set_prompt(readline_ctx, "> ");
     readline_set_prompt(subcmd_readline_ctx, ">> ");
-
+    readline_set_prompt(script_repl_readline_ctx, "-> ");
 }
 
 int tty_connect(void)

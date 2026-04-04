@@ -191,13 +191,13 @@ Example:
 [10:17:30.215] Enter file name or "!" Lua commands or "@" interpreter directive:
 >> @repl
 [10:17:31.956] Enter Lua REPL mode (@exit to exit)
->> p=1
->> for i=1,10 do\
->>     p = p * i\
->> end
->> print(p, "\r")
+-> p=1
+-> for i=1,10 do\
+->     p = p * i\
+-> end
+-> print(p, "\r")
 3628800
->> @exit
+-> @exit
 ```
 
 ---

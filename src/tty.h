@@ -100,3 +100,6 @@ void forward_to_tty(int fd, char output_char);
 ssize_t tty_write(int fd, const void *buffer, size_t count);
 void tty_sync(int fd);
 int tty_tcsetattr(int fd);
+int tty_inkey(int mseconds);
+int tty_simple_readln(const char *prompt);
+int tty_subcmd_readln(const char *title_prompt);

@@ -21,7 +21,7 @@
 
 #pragma once
 
-#define RL_HISTORY_MAX 1000
+#define RL_HISTORY_MAX 500
 #define RL_PROMPT_LENGTH_MAX 16
 
 typedef struct readline_s readline_t;
