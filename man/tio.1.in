@@ -547,6 +547,14 @@ Send file using x/y-modem protocol.
 Protocol can be any of XMODEM_1K, XMODEM_CRC, XMODEM_SUM, YMODEM.
 It can alternatively be one of tio.C.XM_1K, tio.C.XM_CRC, tio.C.XM_SUM, tio.C.YM_NORMAL.
 
+.IP "\fBtio.receive(file, protocol)"
+Receive a file using the XMODEM protocol.
+
+Protocol can be any of XMODEM_CRC or XMODEM_SUM.
+It can alternatively be one of tio.C.XM_CRC or tio.C.XM_SUM.
+
+Returns the tio table on success or nil on error.
+
 .IP "\fBtio.ttysearch()"
 Search for serial devices.
 
@@ -642,6 +650,82 @@ Return value is one of tio.C.SA_INTERACTIVE, tio.C.SA_STARTING, tio.C.SA_PIPED_I
 .IP "\fBtio.get_version()"
 Return the version of tio as a string.
 It is equivalent to the key command ctrl-t v.
+
+.IP "\fBtio.inkey(timeout)"
+Read a key press and return it as a string.
+
+Timeout is in milliseconds. If timeout is tio.C.WAIT_FOREVER(==0),
+the function blocks until a key is pressed. If timeout is
+tio.C.NOWAIT (==-1) or not provided, the function returns
+immediately.
+
+Returns the key as a string on success, or nil on timeout.
+
+.IP "\fBtio.input(prompt)"
+Display a prompt and read user input until Enter is pressed.
+
+Basic line editing is supported (Backspace key).
+
+If prompt is not provided, no prompt is displayed.
+
+Returns the entered string.
+
+.IP "\fBtio.inputline(prompt)"
+Display a prompt and read a line of input until Enter is pressed.
+
+Supports line editing (cursor keys, Backspace) and command history.
+
+Returns the entered string.
+
+.IP "\fBtio.set_keymap(keymaps)"
+Add, update, or remove key mappings.
+
+The keymaps argument uses the same syntax as the --keymap option:
+
+  @<key-1>=<script-description-1>
+  @<key-2>=<script-description-2>
+  ...
+  @<key-N>=<script-description-N>
+
+Each <script-description> must be either a script filename or an
+inline script prefixed with '!'.
+
+When a mapping is defined, pressing Ctrl-t followed by <key-n>
+executes the corresponding script.
+
+If a key already has a mapping, it is updated. If
+<script-description> is empty, the mapping is removed.
+
+User-defined key mappings take precedence over default key bindings,
+except for "Ctrl-t q", which is always reserved.
+
+This function allows key mappings to be modified at runtime after tio
+has started.
+
+.IP "\fBtio.subcmd_println(fmt, ...)"
+Print a formatted line using sub-command style output.
+
+The output format is:
+      [<timestamp>] <formatted message>
+
+.IP "\fBtio.subcmd_warning_println(fmt, ...)"
+Print a formatted warning line using sub-command style output.
+
+.IP "\fBtio.subcmd_error_println(fmt, ...)"
+Print a formatted error line using sub-command style output.
+.IP "\fBtio.subcmd_error_println(fmt, ...)"
+
+.IP "\fBtio.subcmd_puts(string)"
+Print a string using sub-command style output.
+
+The output format is:
+      [<timestamp>] <string>
+
+.IP "\fBtio.subcmd_warning_puts(string)"
+Print a warning string using sub-command style output.
+
+.IP "\fBtio.subcmd_error_puts(string)"
+Print an error string using sub-command style output.
 
 .IP "\fBtio.alwaysecho"
 A boolean value, defaults to true.
@@ -957,7 +1041,6 @@ $ tio --exec '?gkermit -XSs file' /dev/ttyUSB0
 Receive file from device by gkermit command:
 
 $ tio --exec '?gkermit -XSr' /dev/ttyUSB0
-
 
 .SH "WEBSITE"
 .PP

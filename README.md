@@ -417,7 +417,6 @@ Tio suppots Lua scripting to easily automate interaction with the tty device.
 In addition to the standard Lua API tio makes the functions and variables available
 The following are representative. See the man page for the complete list.:
 
-
 #### `tio.expect(pattern, timeout)`
 
 Waits for the Lua pattern to match or timeout before continuing.
@@ -468,6 +467,13 @@ Send file using x/y-modem protocol.
 Protocol can be any of `XMODEM_1K`, `XMODEM_CRC`, `XMODEM_SUM`, `YMODEM`.
 Alternatively, it can be one of tio.C.XM_1K, tio.C.XM_CRC, tio.C.XM_SUM, or tio.C.YM_NORMAL.
 
+#### `tio.receive(file, protocol)`
+
+eceive a file using the XMODEM protocol.
+
+protocol can be one of XMODEM_CRC or XMODEM_SUM.
+Alternatively, use tio.C.XM_CRC or tio.C.XM_SUM.
+
 #### `tio.ttysearch()`
 
 Search for serial devices.
@@ -494,6 +500,45 @@ Sleep for seconds.
 #### `tio.msleep(ms)`
 
 Sleep for milliseconds.
+
+#### `tio.inkey(timeout)`
+
+Read a key press as a string.
+
+timeout is specified in milliseconds.
+Defaults to tio.C.NOWAIT (==-1), meaning the call returns immediately.
+If set to tio.C.WAIT_FOREVER (==0), the function blocks until a key is pressed.
+
+Returns nil on timeout.
+
+#### `tio.input(prompt)`
+
+Display a prompt and read user input until Enter is pressed.
+Basic editing is supported (Backspace key).
+
+If prompt is omitted, no prompt is displayed.
+Returns the entered string.
+
+#### `tio.inputline(prompt)`
+
+Display a prompt and read a line of input until Enter is pressed.
+Supports line editing (cursor keys, Backspace) and command history.
+
+Returns the entered string.
+
+#### `tio.set_keymap(keymaps)`
+
+Add, update, or remove key mappings.
+
+#### `tio.subcmd_println(fmt, ...)`
+
+Print a formatted line using sub-command style output
+(e.g. [<timestamp>] <message>).
+
+#### `tio.subcmd_puts(string)`
+
+Print string using sub-command style output.
+(e.g. [<time-stamp>] <string>).
 
 #### `tio.alwaysecho`
 

@@ -108,6 +108,15 @@ static char script_init[] =
 "        end\n"
 "    end\n"
 "end\n"
+"tio.subcmd_println = function(fmt, ...)\n"
+"    tio.subcmd_puts(string.format(fmt, select(1, ...)))\n"
+"end\n"
+"tio.subcmd_warning_println = function(fmt, ...)\n"
+"    tio.subcmd_warning_puts(fmt, string.format(fmt, select(1, ...)))\n"
+"end\n"
+"tio.subcmd_error_println = function(fmt, ...)\n"
+"    tio.subcmd_error_puts(fmt, string.format(fmt, select(1, ...)))\n"
+"end\n"
 "tio.alwaysecho = true\n"
 "setmetatable(tio, tio)\n";
 // clang-format on
@@ -339,6 +348,54 @@ static int api_send(lua_State *L)
     return 0;
 }
 
+// lua: tio.receive(file, protocol)
+static int api_receive(lua_State *L)
+{
+    const char *file = luaL_checkstring(L, 1);
+    int protocol = luaL_checkinteger(L, 2);
+    int ret;
+
+    if (device_fd == 0)
+    {
+        return luaL_error(L, "tty device not ready");
+    }
+
+    if (file == NULL)
+    {
+        return 0;
+    }
+
+    state_t state_orig = state;
+    state = STATE_XYMODEM;
+    tty_tcsetattr(device_fd);
+
+    switch (protocol)
+    {
+        case XMODEM_CRC:
+            tio_printf("Receiving file '%s' using XMODEM-CRC", file);
+            ret = xymodem_receive(device_fd, file, XMODEM_CRC);
+            tio_printf("%s", ret < 0 ? "Aborted" : "Done");
+            break;
+
+        case XMODEM_SUM:
+            tio_printf("Receiving file '%s' using XMODEM-SUM", file);
+            ret = xymodem_receive(device_fd, file, XMODEM_SUM);
+            tio_printf("%s", ret < 0 ? "Aborted" : "Done");
+            break;
+
+        case XMODEM_1K:
+        case YMODEM:
+        default:
+            tio_error_printf("Not supported");
+            break;
+    }
+
+    state = state_orig;
+    tty_tcsetattr(device_fd);
+
+    return 0;
+}
+
 // lua: tio.write(string)
 static int api_write(lua_State *L)
 {
@@ -496,6 +553,145 @@ static int api_readline(lua_State *L)
         luaL_addchar(&b, ch);
     }
 }
+
+// lua: str = tio.inkey(mseconds)
+static int api_inkey(lua_State *L)
+{
+    extern char inkey_chars[];
+    int ret;
+    int mseconds;
+    int arg_num = lua_gettop(L);
+    int arg;
+    if (arg_num == 0)
+    {
+        arg = -1;
+    }
+    else
+    {
+        arg = lua_tointeger(L, 1);
+    }
+    if (arg == 0)
+    {
+        mseconds = POLL_FOREVER;
+    }
+    else if (arg < 0)
+    {
+        mseconds = POLL_NOWAIT;
+    }
+    else
+    {
+        mseconds = arg;
+    }
+    ret = tty_inkey(mseconds);
+    if (ret == 0)
+    {
+        /* Timeout */
+        lua_pushnil(L);
+        return 1;
+    }
+    else if (ret < 0) {
+        return luaL_error(L, "inkey failed");
+    }
+    lua_pushlstring(L, inkey_chars, ret);
+    return 1;
+}
+
+// lua: str = tio.input(prompt)
+static int api_input(lua_State *L)
+{
+    extern char line[];
+    int arg_num = lua_gettop(L);
+    const char *prompt = "";
+    if (arg_num > 0)
+    {
+        prompt = luaL_checkstring(L, 1);
+    }
+    tty_simple_readln(prompt);
+    lua_pushstring(L, line);
+    return 1;
+}
+
+// lua: str = tio.inputline(title_prompt)
+static int api_input_line(lua_State *L)
+{
+    extern char line[];
+    int arg_num = lua_gettop(L);
+    const char *prompt = "";
+    if (arg_num > 0)
+    {
+        prompt = luaL_checkstring(L, 1);
+    }
+    tty_subcmd_readln(prompt);
+    lua_pushstring(L, line);
+    return 1;
+}
+
+// lua: api_subcmd_puts(str)
+static int api_subcmd_puts(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    const char *str;
+    if (arg_num != 1)
+    {
+        return luaL_error(L, "arguments error");
+    }
+    str = luaL_checkstring(L, 1);
+    tio_printf("%s", str);
+    return 0;
+}
+
+// lua: api_subcmd_warning_puts(str)
+static int api_subcmd_warning_puts(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    const char *str;
+    if (arg_num != 1)
+    {
+        return luaL_error(L, "arguments error");
+    }
+    str = luaL_checkstring(L, 1);
+    tio_warning_printf("%s", str);
+    return 0;
+}
+
+// lua: api_subcmd_error_puts(str)
+static int api_subcmd_error_puts(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    const char *str;
+    if (arg_num != 1)
+    {
+        return luaL_error(L, "arguments error");
+    }
+    str = luaL_checkstring(L, 1);
+    tio_error_printf("%s", str);
+    return 0;
+}
+
+// lua: true/false, error = tio.set_keymap(keymap_str)
+static int api_set_keymap(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    const char *keymap_str;
+    if (arg_num != 1)
+    {
+        return luaL_error(L, "arguments error");
+    }
+    keymap_str = luaL_checkstring(L, 1);
+#if 1
+    option_parse_key_mappings(keymap_str);
+    return 0;
+#else
+    ret = option_parse_key_mappings(keymap_str);
+    if (ret < 0)
+    {
+        return luaL_error(L, "keymap setting failed");
+    }
+    lua_pushboolean(L, true);
+    return 1;
+#endif
+}
+
 
 // lua: table = tio.ttysearch()
 static int api_ttysearch(lua_State *L)
@@ -797,6 +993,7 @@ static const struct luaL_Reg tio_lib[] =
     { "line_set", api_line_set},
     { "line_get", api_line_get},
     { "send", api_send},
+    { "receive", api_receive},
     { "write", api_write},
     { "twrite", api_twrite},
     { "read", api_read},
@@ -815,6 +1012,15 @@ static const struct luaL_Reg tio_lib[] =
     { "exec_shell_command", api_exec_shell_command},
     { "get_state", api_get_state},
     { "get_version", api_get_version},
+
+    { "inkey", api_inkey},
+    { "input", api_input},
+    { "inputline", api_input_line},
+    { "set_keymap", api_set_keymap},
+
+    { "subcmd_puts", api_subcmd_puts},
+    { "subcmd_warning_puts", api_subcmd_warning_puts},
+    { "subcmd_error_puts", api_subcmd_error_puts},
 
     {NULL, NULL}
 };

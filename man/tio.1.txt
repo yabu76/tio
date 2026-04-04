@@ -454,6 +454,14 @@ SCRIPT API
              Protocol can be any of XMODEM_1K, XMODEM_CRC, XMODEM_SUM, YMODEM.
              It can alternatively be one of tio.C.XM_1K, tio.C.XM_CRC, tio.C.XM_SUM, tio.C.YM_NORMAL.
 
+       tio.receive(file, protocol)
+             Receive a file using the XMODEM protocol.
+
+             Protocol can be any of XMODEM_CRC or XMODEM_SUM.
+             It can alternatively be one of tio.C.XM_CRC or tio.C.XM_SUM.
+
+             Returns the tio table on success or nil on error.
+
        tio.ttysearch()
              Search for serial devices.
 
@@ -547,6 +555,77 @@ SCRIPT API
        tio.get_version()
              Return the version of tio as a string.
              It is equivalent to the key command ctrl-t v.
+
+       tio.inkey(timeout)
+             Read a key press and return it as a string.
+
+             Timeout is in milliseconds. If timeout is tio.C.WAIT_FOREVER(==0),
+             the function blocks until a key is pressed. If timeout is
+             tio.C.NOWAIT (==-1) or not provided, the function returns
+             immediately.
+
+             Returns the key as a string on success, or nil on timeout.
+
+       tio.input(prompt)
+             Display a prompt and read user input until Enter is pressed.
+
+             Basic line editing is supported (Backspace key).
+
+             If prompt is not provided, no prompt is displayed.
+
+             Returns the entered string.
+
+       tio.inputline(prompt)
+             Display a prompt and read a line of input until Enter is pressed.
+
+             Supports line editing (cursor keys, Backspace) and command
+             history.
+
+             Returns the entered string.
+
+       tio.set_keymap(keymaps)
+             Add, update, or remove key mappings.
+
+             The <keymaps> argument uses the same syntax as the --keymap option:
+
+                   @<key-1>=<script-description-1>
+                   @<key-2>=<script-description-2>
+                   ...
+                   @<key-N>=<script-description-N>
+
+             Each <script-description> must be either a script filename or an inline script prefixed with '!'.
+
+             When a mapping is defined, pressing Ctrl-T followed by <key-n> executes the corresponding script.
+
+             If a key already has a mapping, it will be updated. If <script-description> is empty, the mapping is removed.
+
+             User-defined key mappings take precedence over default key bindings, except for "Ctrl-T q", which is always reserved.
+
+             This function can be used to dynamically modify key mappings at runtime after tio has started.
+
+       tio.subcmd_println(fmt, ...)
+             Print a formatted line using sub-command style output.
+
+             The output format is:
+                   [<timestamp>] <formatted message>
+
+       tio.subcmd_warning_println(fmt, ...)
+             Print a formatted warning line using sub-command style output.
+
+       tio.subcmd_error_println(fmt, ...)
+             Print a formatted error line using sub-command style output.
+
+       tio.subcmd_puts(string)
+             Print a string using sub-command style output.
+
+             The output format is:
+                   [<timestamp>] <string>
+
+       tio.subcmd_warning_puts(string)
+             Print a warning string using sub-command style output.
+
+       tio.subcmd_error_puts(string)
+             Print an error string using sub-command style output.
 
        tio.alwaysecho
              A boolean value, defaults to true.
