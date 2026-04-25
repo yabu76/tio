@@ -140,7 +140,9 @@ static void readline_input_cr(readline_t *rl)
     {
         // Different line only
         if (rl->history_count == 0 ||
-            (rl->history_count > 0 && strncmp(rl->history[rl->history_count - 1], rl->line, rl->line_length) != 0))
+            (rl->history_count > 0 &&
+             ! (rl->history[rl->history_count - 1][rl->line_length] == '\0' &&
+                strncmp(rl->history[rl->history_count - 1], rl->line, rl->line_length) == 0)) )
         {
             // Save to history
             if (rl->history_count < RL_HISTORY_MAX)
