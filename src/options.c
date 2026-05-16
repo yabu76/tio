@@ -51,6 +51,7 @@ enum opt_t
     OPT_ALERT,
     OPT_COMPLETE_PROFILES,
     OPT_MUTE,
+    OPT_NO_LINE_HISTORY_SAVE,
     OPT_SCRIPT_INIT_FILE,
     OPT_SCRIPT,
     OPT_SCRIPT_FILE,
@@ -103,6 +104,7 @@ struct option_t option =
     .prefix_key = 't',
     .prefix_enabled = true,
     .mute = false,
+    .no_line_history_save = false,
     .rs485 = false,
     .rs485_config_flags = 0,
     .rs485_delay_rts_before_send = -1,
@@ -187,6 +189,7 @@ void option_print_help(char *argv[])
     printf("      --rs-485-config <config>           Set RS-485 configuration\n");
     printf("      --alert bell|blink|none            Alert on connect/disconnect (default: none)\n");
     printf("      --mute                             Mute tio messages\n");
+    printf("      --no-line-history-save             Do not save line-edit-hisoty on exit and load on startup\n");
     printf("      --script-init-file <filename>      Set initial script file to run at startup\n");
     printf("      --script <string>                  Run script from string\n");
     printf("      --script-file <filename>           Run script from file\n");
@@ -1023,6 +1026,7 @@ void options_parse(int argc, char *argv[])
             {"rs-485-config",        required_argument, 0, OPT_RS485_CONFIG        },
             {"alert",                required_argument, 0, OPT_ALERT               },
             {"mute",                 no_argument,       0, OPT_MUTE                },
+            {"no-line-history-save", no_argument,       0, OPT_NO_LINE_HISTORY_SAVE },
             {"script-init-file",     required_argument, 0, OPT_SCRIPT_INIT_FILE    },
             {"script",               required_argument, 0, OPT_SCRIPT              },
             {"script-file",          required_argument, 0, OPT_SCRIPT_FILE         },
@@ -1196,6 +1200,10 @@ void options_parse(int argc, char *argv[])
 
             case OPT_MUTE:
                 option.mute = true;
+                break;
+
+            case OPT_NO_LINE_HISTORY_SAVE:
+                option.no_line_history_save = true;
                 break;
 
             case OPT_SCRIPT_INIT_FILE:

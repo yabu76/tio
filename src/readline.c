@@ -30,6 +30,7 @@ typedef struct readline_s
 {
     char line[RL_LINE_LENGTH_MAX];
     char *history[RL_HISTORY_MAX];
+    char history_filename[PATH_MAX];
     char prompt[RL_PROMPT_LENGTH_MAX];
     int prompt_length;
     int history_count;
@@ -61,19 +62,29 @@ void print_line(readline_t *rl)
     }
 }
 
-readline_t *readline_create(void)
+readline_t *readline_create(const char *history_filename)
 {
     readline_t *rl = malloc(sizeof(readline_t));
     if (rl == NULL)
         return NULL;
 
-    readline_reinit(rl);
+    readline_reinit(rl, history_filename);
     return rl;
 }
 
-void readline_reinit(readline_t *rl)
+void readline_reinit(readline_t *rl, const char *history_filename)
 {
     assert(rl != NULL);
+
+    if (history_filename && history_filename[0] != '\0')
+    {
+        strncpy(rl->history_filename, history_filename, PATH_MAX - 1);
+        rl->history_filename[PATH_MAX - 1] = '\0';
+    }
+    else
+    {
+        rl->history_filename[0] = '\0';
+    }
 
     rl->prompt[0] = '\0';
     rl->prompt_length = 0;
@@ -90,6 +101,73 @@ void readline_reinit(readline_t *rl)
     rl->line_length = 0;
     rl->cursor_pos = 0;
     rl->escape = 0;
+}
+
+void readline_load(readline_t *rl)
+{
+    if (rl->history_filename[0] == '\0')
+        return;
+
+    FILE *fp = fopen(rl->history_filename, "r");
+    if (!fp)
+        return;
+
+    char buf[RL_LINE_LENGTH_MAX];
+
+    while (fgets(buf, sizeof(buf), fp))
+    {
+        size_t len = strlen(buf);
+
+        // strip newline
+        if (len > 0 && buf[len - 1] == '\n')
+            buf[--len] = '\0';
+
+        if (len == 0)
+            continue;
+
+        if (rl->history_count < RL_HISTORY_FILE_MAX)
+        {
+            rl->history[rl->history_count++] = strndup(buf, len);
+        }
+        else
+        {
+            // trim top and append line to tail
+            free(rl->history[0]);
+            memmove(&rl->history[0], &rl->history[1],
+                    (RL_HISTORY_FILE_MAX - 1) * sizeof(char *));
+            rl->history[RL_HISTORY_FILE_MAX - 1] = strndup(buf, len);
+        }
+    }
+
+    fclose(fp);
+
+    rl->history_index = rl->history_count;
+}
+
+void readline_save(readline_t *rl)
+{
+    if (rl->history_count == 0)
+        return;
+
+    FILE *fp = fopen(rl->history_filename, "w");
+    if (!fp)
+    {
+        tio_warning_printf("Could not save history %s", rl->history_filename);
+        return;
+    }
+
+    int start = 0;
+    if (rl->history_count > RL_HISTORY_FILE_MAX)
+    {
+        start = rl->history_count - RL_HISTORY_FILE_MAX;
+    }
+
+    for (int i = start; i < rl->history_count; i++)
+    {
+        fprintf(fp, "%s\n", rl->history[i]);
+    }
+
+    fclose(fp);
 }
 
 void readline_set_prompt(readline_t *rl, const char *prompt)

@@ -394,6 +394,21 @@ Default value is "none".
 Mute tio messages.
 
 .TP
+.BR "\-\-no-line-history-save"
+
+Do not save line-input-hisoty on exit and load on startup.
+
+History files are the following:
+
+.PP
+.I $HOME/.tio_history_<<connection_name>>
+.PP
+.I $HOME/.tio_history_<<connection_name>>_subcmd
+.PP
+.I $HOME/.tio_history_<<connection_name>>_repl
+
+
+.TP
 .BR "\-\-script\-init\-file \fI<filename>"
 
 Run script from file with filename on tio's startup.
@@ -835,6 +850,8 @@ Set RS-485 configuration
 Set alert action on connect/disconnect
 .IP "\fBmute"
 Mute tio messages
+.IP "\fBno-line-history-save"
+Do not save line-edit-history on exit and load on startup
 .IP "\fBscript-init-file"
 Run script from file on tio's startup
 .IP "\fBscript"

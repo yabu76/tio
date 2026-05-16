@@ -22,13 +22,16 @@
 #pragma once
 
 #define RL_HISTORY_MAX 500
+#define RL_HISTORY_FILE_MAX 500
 #define RL_PROMPT_LENGTH_MAX 16
 
 typedef struct readline_s readline_t;
 
-readline_t *readline_create(void);
-void readline_reinit(readline_t *rl);
+readline_t *readline_create(const char *history_filename);
+void readline_reinit(readline_t *rl, const char *history_filename);
 void readline_set_prompt(readline_t *rl, const char *prompt);
+void readline_load(readline_t *rl);
+void readline_save(readline_t *rl);
 void readline_prompt_for_input(readline_t *rl);
 void readline_input(readline_t *rl, char input_char);
 char *readline_get(readline_t *rl);

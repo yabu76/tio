@@ -311,6 +311,18 @@ OPTIONS
 
               Mute tio messages.
 
+       --no-line-history-save
+
+              Do not save line-input-hisoty on exit and load on startup.
+
+              History files are the following:
+
+              $HOME/.tio_history_<<connection_name>>
+
+              $HOME/.tio_history_<<connection_name>>_subcmd
+
+              $HOME/.tio_history_<<connection_name>>_repl
+
        --script-init-file <filename>
 
               Run script from file with filename on tio's startup.
@@ -719,6 +731,8 @@ CONFIGURATION FILE
        alert                    Set alert action on connect/disconnect
 
        mute                     Mute tio messages
+
+       no-line-history-save     Do not save line-input-hisoty on exit and load on startup
 
        script-init-file         Run script from file on tio's startup
 

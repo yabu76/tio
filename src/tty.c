@@ -2966,20 +2966,74 @@ void forward_to_tty(int fd, char output_char)
     }
 }
 
+static int make_history_file_path(char *buf, int buf_size, const char *deco)
+{
+    int len;
+    char *home = getenv("HOME");
+    if (!home)
+    {
+        tio_error_printf("Could not specify home directory from HOME environment variable.");
+        return -1;
+    }
+
+    if (deco && *deco != '\0')
+        snprintf(buf, buf_size, "%s/.tio_history_%s_%s", home, option.target, deco);
+    else
+        snprintf(buf, buf_size, "%s/.tio_history_%s", home, option.target);
+
+    for (len = strlen(home) + 1; buf[len] == '\0' || len < buf_size; len++)
+    {
+        if (buf[len] == '/')
+            buf[len] = '_';
+    }
+    return len;
+}
+
+
 void tty_init(void)
 {
     // Initialize readline like history
-    readline_ctx = readline_create();
-    subcmd_readline_ctx = readline_create();
-    script_repl_readline_ctx = readline_create();
+    char history_file_path[PATH_MAX];
+
+    if (make_history_file_path(history_file_path, PATH_MAX, "") > 0)
+    {
+        readline_ctx = readline_create(history_file_path);
+    }
+    if (make_history_file_path(history_file_path, PATH_MAX, "subcmd") > 0)
+    {
+        subcmd_readline_ctx = readline_create(history_file_path);
+    }
+    if (make_history_file_path(history_file_path, PATH_MAX, "repl") > 0)
+    {
+        script_repl_readline_ctx = readline_create(history_file_path);
+    }
+
     if (readline_ctx == NULL || subcmd_readline_ctx == NULL || script_repl_readline_ctx == NULL)
     {
         tio_error_printf("Could not allocate readline buffer.");
         exit(EXIT_FAILURE);
     }
+
     readline_set_prompt(readline_ctx, "> ");
     readline_set_prompt(subcmd_readline_ctx, ">> ");
     readline_set_prompt(script_repl_readline_ctx, "-> ");
+
+    if (!option.no_line_history_save)
+    {
+        readline_load(readline_ctx);
+        readline_load(subcmd_readline_ctx);
+        readline_load(script_repl_readline_ctx);
+    }
+}
+
+void tty_exit(void)
+{
+    if (!option.no_line_history_save)
+    {
+        readline_save(readline_ctx);
+        readline_save(subcmd_readline_ctx);
+        readline_save(script_repl_readline_ctx);
+    }
 }
 
 int tty_connect(void)

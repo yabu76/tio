@@ -88,6 +88,7 @@ struct option_t
     char prefix_key;
     bool prefix_enabled;
     bool mute;
+    bool no_line_history_save;
     bool rs485;
     uint32_t rs485_config_flags;
     int32_t rs485_delay_rts_before_send;

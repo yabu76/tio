@@ -126,6 +126,9 @@ int main(int argc, char *argv[])
     /* Script interpreter init */
     script_interp_init();
 
+    /* Add tty exit handler */
+    atexit(&tty_exit);
+
     /* Initialize tty module once on program start */
     tty_init();
 
