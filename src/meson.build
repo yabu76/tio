@@ -30,22 +30,32 @@ tio_sources = [
   version_h
 ]
 
-
-foreach name: ['lua-5.4', 'lua-5.3', 'lua-5.2', 'lua-5.1', 'lua']
-  lua_dep = dependency(name, version: '>=5.1', required: false)
-  if lua_dep.found()
-    break
-  endif
-endforeach
-if not lua_dep.found()
-  error('Lua could not be found!')
-endif
-
 tio_dep = [
   dependency('threads', required: true),
   dependency('glib-2.0', required: true),
-  lua_dep
 ]
+
+foreach name: ['luajit', 'luajit-5.1']
+  luajit_dep = dependency(name, version: '>=2.1', required: false)
+  if luajit_dep.found()
+    break
+  endif
+endforeach
+if not luajit_dep.found()
+  foreach name: ['lua-5.4', 'lua-5.3', 'lua-5.2', 'lua-5.1', 'lua']
+    lua_dep = dependency(name, version: '>=5.1', required: false)
+    if lua_dep.found()
+      break
+    endif
+  endforeach
+endif
+if luajit_dep.found()
+  tio_dep += [luajit_dep]
+elif lua_dep.found()
+  tio_dep += [lua_dep]
+else
+  error('Lua could not be found!')
+endif
 
 if host_machine.system() == 'darwin'
   iokit_dep = dependency('appleframeworks', modules: ['IOKit'], required: true)

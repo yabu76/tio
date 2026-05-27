@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
 #include <sys/ioctl.h>
@@ -50,6 +51,9 @@ static lua_State *script_interp = NULL;
 
 // clang-format off
 static char script_init[] =
+"if table.unpack == nil then\n"
+"    table.unpack = unpack\n"
+"end\n"
 "tio.C = {\n"
 "    EXPECT_CLEANUP_READ_SIZE = 4096,\n"
 "    WAIT_FOREVER = 0,\n"
@@ -475,7 +479,7 @@ static int api_read(lua_State *L)
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
 
-#if LUA_VERSION_NUM >= 502
+#if LUA_VERSION_NUM >= 502 || defined(LUAJIT_VERSION)
     char *p = luaL_prepbuffsize(&buffer, size);
 #else
     if (size > LUAL_BUFFERSIZE)
@@ -1098,13 +1102,17 @@ static void script_set_consts(lua_State *L)
 }
 
 
-#if LUA_VERSION_NUM >= 502
 static int luaopen_tio(lua_State *L)
 {
+#if LUA_VERSION_NUM >= 502
     luaL_newlib(L, tio_lib);
+#else
+    lua_newtable(L);
+    lua_pushvalue(L, -1);
+    luaL_register(L, NULL, tio_lib);
+#endif
     return 1;
 }
-#endif
 
 static lua_State *script_interp_new(void)
 {
@@ -1122,17 +1130,14 @@ static lua_State *script_interp_new(void)
         return NULL;
     }
 
-    lua_gc(L, LUA_GCSTOP);
+    lua_gc(L, LUA_GCSTOP, 0);
     luaL_openlibs(L);
-    lua_gc(L, LUA_GCRESTART);
+    lua_gc(L, LUA_GCRESTART, 0);
+#if LUA_VERSION_NUM >= 504
     lua_gc(L, LUA_GCGEN, 0, 0);
-
-#if LUA_VERSION_NUM >= 502
-    luaL_requiref(L, "tio", luaopen_tio, 1);
-#else
-    luaL_register(L, "tio", tio_lib);
 #endif
-    lua_pop(L, 1);
+    luaopen_tio(L);
+    lua_setglobal(L, "tio");
 
     // Load lua init script
     script_load(L);
@@ -1148,6 +1153,24 @@ static lua_State *script_interp_new(void)
             lua_pop(L, 1);
         }
     }
+
+#if defined(LUAJIT_VERSION)
+    // luajit enable
+    lua_getglobal(L, "jit");
+    if (lua_istable(L, -1))
+    {
+        lua_getfield(L, -1, "on");
+        if (lua_isfunction(L, -1))
+        {
+            lua_call(L, 0, 0);
+        }
+        else
+        {
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+#endif
 
     return L;
 }
