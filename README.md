@@ -540,6 +540,14 @@ Print a formatted line using sub-command style output
 Print string using sub-command style output.
 (e.g. [<time-stamp>] <string>).
 
+#### `tio.input_thread_pause()
+
+Pause tio's input thread capturing standard input.
+
+#### `tio.input_thread_resume()
+
+Resume tio's input thread capturing standard input.
+
 #### `tio.alwaysecho`
 
 A boolean value, defaults to `true`.

@@ -94,6 +94,8 @@ void tty_wait_for_device(void);
 void list_serial_devices(void);
 void tty_input_thread_create(void);
 void tty_input_thread_wait_ready(void);
+void tty_input_thread_pause(void);
+void tty_input_thread_resume(void);
 void tty_line_set(int fd, tty_line_config_t line_config[]);
 void tty_search(void);
 GList *tty_search_for_serial_devices(void);

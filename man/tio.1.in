@@ -742,6 +742,12 @@ Print a warning string using sub-command style output.
 .IP "\fBtio.subcmd_error_puts(string)"
 Print an error string using sub-command style output.
 
+.IP "\fBtio.input_thread_pause()"
+Pause tio's input thread capturing standard input.
+
+.IP "\fBtio.input_thread_resume()"
+Resume tio's input thread capturing standard input.
+
 .IP "\fBtio.alwaysecho"
 A boolean value, defaults to true.
 

@@ -959,6 +959,22 @@ static int api_get_version(lua_State *L)
     return 1;
 }
 
+// lua: tio.pause_input_thread()
+static int api_pause_input_thread(lua_State *L)
+{
+    UNUSED(L);
+    tty_input_thread_pause();
+    return 0;
+}
+
+// lua: tio.resume_input_thread()
+static int api_resume_input_thread(lua_State *L)
+{
+    UNUSED(L);
+    tty_input_thread_resume();
+    return 0;
+}
+
 static void script_buffer_run(lua_State *L, const char *script_buffer)
 {
     int error;
@@ -1021,6 +1037,9 @@ static const struct luaL_Reg tio_lib[] =
     { "input", api_input},
     { "inputline", api_input_line},
     { "set_keymap", api_set_keymap},
+
+    { "pause_input_thread", api_pause_input_thread },
+    { "resume_input_thread", api_resume_input_thread },
 
     { "subcmd_puts", api_subcmd_puts},
     { "subcmd_warning_puts", api_subcmd_warning_puts},

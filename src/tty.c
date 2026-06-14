@@ -191,6 +191,8 @@ static char *tty_buffer_write_ptr = tty_buffer;
 static pthread_t thread;
 static int pipefd[2];
 static pthread_mutex_t mutex_input_ready = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex_input_pause = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex_stdin = PTHREAD_MUTEX_INITIALIZER;
 char line[PATH_MAX], mline[MLINE_MAX];
 char inkey_chars[INKEY_CHARS_MAX];
 static size_t listing_device_name_length_max = 0;
@@ -546,8 +548,11 @@ void *tty_stdin_input_thread(void *arg)
 {
     UNUSED(arg);
     char input_buffer[BUFSIZ];
+    int status;
     ssize_t byte_count;
     ssize_t bytes_written;
+    struct timeval tv = {0};
+    fd_set fds;
 
     // Create FIFO pipe
     if (pipe(pipefd) == -1)
@@ -560,15 +565,46 @@ void *tty_stdin_input_thread(void *arg)
     pthread_mutex_unlock(&mutex_input_ready);
 
     // Input loop for stdin
+    bool lock_prewait_on = false;
     while (true)
     {
         /* Input from stdin ready */
-        byte_count = read(STDIN_FILENO, input_buffer, BUFSIZ);
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        tv.tv_sec = 0;
+        tv.tv_usec = 300 * 1000;
+
+        if (lock_prewait_on)
+        {
+            usleep(100*1000);
+        }
+        pthread_mutex_lock(&mutex_stdin);
+        status = select(1, &fds, NULL, NULL, &tv);
+        if (status > 0)
+        {
+            byte_count = read(STDIN_FILENO, input_buffer, BUFSIZ);
+            lock_prewait_on = false;
+        }
+        pthread_mutex_unlock(&mutex_stdin);
+
+        if (status == 0)
+        {
+            lock_prewait_on = true;
+            continue;
+        }
+        else if (status < 0)
+        {
+            tio_error_printf("Could not select for stdin (%s)", strerror(errno));
+            lock_prewait_on = true;
+            continue;
+        }
+
         if (byte_count < 0)
         {
             /* No error actually occurred */
             if (errno == EINTR)
             {
+                lock_prewait_on = true;
                 continue;
             }
             tio_warning_printf("Could not read from stdin (%s)", strerror(errno));
@@ -665,6 +701,21 @@ void tty_input_thread_create(void)
 void tty_input_thread_wait_ready(void)
 {
     pthread_mutex_lock(&mutex_input_ready);
+}
+
+void tty_input_thread_pause(void)
+{
+    if (pthread_mutex_trylock(&mutex_input_pause) != 0)
+    {
+        return;
+    }
+    pthread_mutex_lock(&mutex_stdin);
+}
+
+void tty_input_thread_resume(void)
+{
+    pthread_mutex_unlock(&mutex_input_pause);
+    pthread_mutex_unlock(&mutex_stdin);
 }
 
 static void handle_hex_prompt(char c)

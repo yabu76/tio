@@ -639,6 +639,12 @@ SCRIPT API
        tio.subcmd_error_puts(string)
              Print an error string using sub-command style output.
 
+       tio.input_thread_pause()
+             Pause tio's input thread capturing standard input.
+
+       tio.input_thread_resume()
+             Resume tio's input thread capturing standard input.
+
        tio.alwaysecho
              A boolean value, defaults to true.
 
