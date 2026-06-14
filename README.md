@@ -600,7 +600,9 @@ The latest source releases can be found [here](https://github.com/tio/tio/releas
 Before running the install steps make sure you have glib and lua libraries installed. For example:
 
 ```
-$ sudo apt install libglib2.0-dev liblua5.2-dev
+$ sudo apt install libglib2.0-dev libluajit-5.1-dev
+or
+$ sudo apt install libglib2.0-dev liblua-5.4-dev
 ```
 
 Install steps:
