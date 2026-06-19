@@ -572,6 +572,11 @@ Mode can be `os` or `tio`.
 
 If stdin is connected to the same tty, the settings of it will also be changed.
 
+#### `tio.set_sleep_echo(bool)`
+
+If true, `tio.sleep()` or `tio.msleep` emit a aingle timestamp to stdout and log file
+per tio.set_sleep_echo(true). Defaults to true.
+
 #### `tio.alwaysecho`
 
 A boolean value, defaults to `true`.

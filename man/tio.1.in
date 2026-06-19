@@ -770,6 +770,13 @@ Mode can be "os" or "tio".
 
 If stdin is connected to the same tty, the settings of it will also be changed.
 
+.IP "\fBtio.set_sleep_echo(bool)"
+Switch the timestamp output when tio.sleep() or tio.msleep() is executed.
+
+If true, timestamp output is enabled.
+
+If false, timestamp output is disabled.
+
 .IP "\fBtio.alwaysecho"
 A boolean value, defaults to true.
 

@@ -48,6 +48,7 @@
 
 static int device_fd = 0;
 static lua_State *script_interp = NULL;
+static bool script_sleep_echo = true;
 
 // clang-format off
 static char script_init[] =
@@ -188,7 +189,10 @@ static int api_sleep(lua_State *L)
         return 0;
     }
 
-    tio_printf("Sleeping %ld seconds", seconds);
+    if (script_sleep_echo)
+    {
+        tio_printf("Sleeping %ld seconds", seconds);
+    }
 
     sleep(seconds);
 
@@ -206,7 +210,10 @@ static int api_msleep(lua_State *L)
         return 0;
     }
 
-    tio_printf("Sleeping %ld ms", mseconds);
+    if (script_sleep_echo)
+    {
+        tio_printf("Sleeping %ld ms", mseconds);
+    }
     usleep(useconds);
 
     return 0;
@@ -1027,6 +1034,22 @@ static int api_set_stdout_mode(lua_State *L)
     return 0;
 }
 
+static int api_set_sleep_echo(lua_State *L)
+{
+    int arg_num = lua_gettop(L);
+    if (arg_num == 0)
+    {
+        script_sleep_echo = true;
+        return 0;
+    }
+    if ( ! (lua_isboolean(L, 1) || lua_isnil(L, 1)) )
+    {
+        return luaL_error(L, "argument is not boolean");
+    }
+    script_sleep_echo = lua_toboolean(L, 1);
+    return 0;
+}
+
 static void script_buffer_run(lua_State *L, const char *script_buffer)
 {
     int error;
@@ -1095,6 +1118,8 @@ static const struct luaL_Reg tio_lib[] =
 
     { "set_stdin_mode", api_set_stdin_mode},
     { "set_stdout_mode", api_set_stdout_mode},
+
+    { "set_sleep_echo", api_set_sleep_echo},
 
     { "subcmd_puts", api_subcmd_puts},
     { "subcmd_warning_puts", api_subcmd_warning_puts},
