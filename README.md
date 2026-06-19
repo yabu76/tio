@@ -540,13 +540,37 @@ Print a formatted line using sub-command style output
 Print string using sub-command style output.
 (e.g. [<time-stamp>] <string>).
 
-#### `tio.input_thread_pause()
+#### `tio.input_thread_pause()`
 
 Pause tio's input thread capturing standard input.
 
-#### `tio.input_thread_resume()
+#### `tio.input_thread_resume()`
 
 Resume tio's input thread capturing standard input.
+
+#### `tio.set_stdin_mode(mode)`
+
+Change stdin mode (tty setting).
+
+Mode can be `os` or `tio`.
+
+`os` represents the state of the device before tio starts.
+
+`tio` represents the state of the device after tio starts.
+
+If stdout is connected to the same tty, the settings of it will also be changed.
+
+#### `tio.set_stdout_mode(mode)`
+
+Change stdout mode (tty setting).
+
+Mode can be `os` or `tio`.
+
+`os` represents the state of the device before tio starts.
+
+`tio` represents the state of the device after tio starts.
+
+If stdin is connected to the same tty, the settings of it will also be changed.
 
 #### `tio.alwaysecho`
 

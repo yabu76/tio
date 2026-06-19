@@ -975,6 +975,58 @@ static int api_resume_input_thread(lua_State *L)
     return 0;
 }
 
+// lua: tio.set_stdin_mode(str)
+static int api_set_stdin_mode(lua_State *L)
+{
+    bool is_valid = false;
+    const char *mode = luaL_checkstring(L, 1);
+    if (mode)
+    {
+        if (strcmp(mode, "os") == 0)
+        {
+            is_valid = true;
+            stdin_restore();
+        }
+        else if (strcmp(mode, "tio") == 0)
+        {
+            is_valid = true;
+            stdin_reconfigure();
+        }
+    }
+
+    if ( ! is_valid )
+    {
+        return luaL_error(L, "mode should be \"os\" or \"tio\"");
+    }
+    return 0;
+}
+
+// lua: tio.set_stdout_mode(str)
+static int api_set_stdout_mode(lua_State *L)
+{
+    bool is_valid = false;
+    const char *mode = luaL_checkstring(L, 1);
+    if (mode)
+    {
+        if (strcmp(mode, "os") == 0)
+        {
+            is_valid = true;
+            stdout_restore();
+        }
+        else if (strcmp(mode, "tio") == 0)
+        {
+            is_valid = true;
+            stdout_reconfigure();
+        }
+    }
+
+    if ( ! is_valid )
+    {
+        return luaL_error(L, "mode should be \"os\" or \"tio\"");
+    }
+    return 0;
+}
+
 static void script_buffer_run(lua_State *L, const char *script_buffer)
 {
     int error;
@@ -1040,6 +1092,9 @@ static const struct luaL_Reg tio_lib[] =
 
     { "pause_input_thread", api_pause_input_thread },
     { "resume_input_thread", api_resume_input_thread },
+
+    { "set_stdin_mode", api_set_stdin_mode},
+    { "set_stdout_mode", api_set_stdout_mode},
 
     { "subcmd_puts", api_subcmd_puts},
     { "subcmd_warning_puts", api_subcmd_warning_puts},
