@@ -171,12 +171,14 @@ const char random_array[] =
 
 bool interactive_mode = true;
 state_t state = STATE_STARTING;
-
+bool stdin_and_stdout_connected_to_same_tty = true;
 char key_hit = 0xff;
 
 const char* device_name = NULL;
 GList *device_list = NULL;
 static struct termios tio, tio_raw, tio_old, stdout_new, stdout_old, stdin_new, stdin_old;
+static bool stdin_configured = false;
+static bool stdout_configured = false;
 unsigned long rx_total = 0, tx_total = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
@@ -1662,7 +1664,21 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
 void stdin_restore(void)
 {
+    if ( ! stdin_configured )
+    {
+        return;
+    }
     tcsetattr(STDIN_FILENO, TCSANOW, &stdin_old);
+}
+
+void stdin_reconfigure(void)
+{
+    if ( ! stdin_configured )
+    {
+        return;
+    }
+    /* Activate new stdin settings */
+    tcsetattr(STDIN_FILENO, TCSANOW, &stdin_new);
 }
 
 void stdin_configure(void)
@@ -1696,10 +1712,17 @@ void stdin_configure(void)
 
     /* Make sure we restore old stdin settings on exit */
     atexit(&stdin_restore);
+
+    stdin_configured = true;
 }
 
 void stdout_restore(void)
 {
+    if ( ! stdout_configured )
+    {
+        return;
+    }
+
     tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_old);
 
     // If terminal is vt100
@@ -1711,46 +1734,69 @@ void stdout_restore(void)
     }
 }
 
+void stdout_reconfigure(void)
+{
+    if ( ! stdout_configured )
+    {
+        return;
+    }
+    tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_new);
+}
+
 void stdout_configure(void)
 {
     int status;
 
-    /* Save current stdout settings */
-    if (tcgetattr(STDOUT_FILENO, &stdout_old) < 0)
+    if (stdin_and_stdout_connected_to_same_tty && stdin_configured)
     {
-        tio_error_printf("Saving current stdio settings failed");
-        exit(EXIT_FAILURE);
+        /* To simplify the process, if stdin_configure() is needed to be called,
+           it must be done before calling this function. */
+        /* Since the intended settings for stdout's tty are the same as those for stdin's tty,
+           no further configuration is required. */
+        memcpy(&stdout_old, &stdin_old, sizeof(stdin_old));
+        memcpy(&stdout_new, &stdin_new, sizeof(stdin_new));
     }
-
-    /* Prepare new stdout settings */
-    memcpy(&stdout_new, &stdout_old, sizeof(stdout_old));
-
-    /* Reconfigure stdout (RAW configuration) */
-    cfmakeraw(&stdout_new);
-
-    /* Allow ^C / SIGINT (to allow termination when piping to tio) */
-    if (!interactive_mode)
+    else
     {
-        stdout_new.c_lflag |= ISIG;
-    }
+        /* Save current stdout settings */
+        if (tcgetattr(STDOUT_FILENO, &stdout_old) < 0)
+        {
+            tio_error_printf("Saving current stdio settings failed");
+            exit(EXIT_FAILURE);
+        }
 
-    /* Control characters */
-    stdout_new.c_cc[VTIME] = 0; /* Inter-character timer unused */
-    stdout_new.c_cc[VMIN]  = 1; /* Blocking read until 1 character received */
+        /* Prepare new stdout settings */
+        memcpy(&stdout_new, &stdout_old, sizeof(stdout_old));
 
-    /* Activate new stdout settings */
-    status = tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_new);
-    if (status == -1)
-    {
-        tio_error_printf("Could not apply new stdout settings (%s)", strerror(errno));
-        exit(EXIT_FAILURE);
+        /* Reconfigure stdout (RAW configuration) */
+        cfmakeraw(&stdout_new);
+
+        /* Allow ^C / SIGINT (to allow termination when piping to tio) */
+        if (!interactive_mode)
+        {
+            stdout_new.c_lflag |= ISIG;
+        }
+
+        /* Control characters */
+        stdout_new.c_cc[VTIME] = 0; /* Inter-character timer unused */
+        stdout_new.c_cc[VMIN]  = 1; /* Blocking read until 1 character received */
+
+        /* Activate new stdout settings */
+        status = tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_new);
+        if (status == -1)
+        {
+            tio_error_printf("Could not apply new stdout settings (%s)", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+
+        /* Make sure we restore old stdout settings on exit */
+        atexit(&stdout_restore);
     }
 
     /* At start use normal print function */
     printchar = print_normal;
 
-    /* Make sure we restore old stdout settings on exit */
-    atexit(&stdout_restore);
+    stdout_configured = true;
 }
 
 void tty_configure(void)

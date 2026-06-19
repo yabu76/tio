@@ -80,11 +80,16 @@ typedef enum
 
 extern const char *device_name;
 extern bool interactive_mode;
+extern bool stdin_and_stdout_connected_to_same_tty;
 extern state_t state;
 extern unsigned long rx_total, tx_total;
 
 void stdout_configure(void);
+void stdout_reconfigure(void);
+void stdout_restore(void);
 void stdin_configure(void);
+void stdin_reconfigure(void);
+void stdin_restore(void);
 void tty_configure(void);
 void tty_reconfigure(void);
 void tty_init(void);

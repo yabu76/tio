@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "version.h"
 #include "config.h"
 #include "options.h"
@@ -65,29 +66,46 @@ int main(int argc, char *argv[])
      * want things like local echo to work correctly. */
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    /* Configure input terminal */
-    if (isatty(fileno(stdin)))
-    {
-        stdin_configure();
-    }
-    else
+    /* Switch error output format */
+    switch_error_output_mode();
+
+    bool stdin_is_atty = isatty(fileno(stdin));
+    bool stdout_is_atty = isatty(fileno(stdout));
+
+    if ( ! stdin_is_atty )
     {
         // Enter non interactive mode
         interactive_mode = false;
     }
-
-    /* Switch error output format */
-    switch_error_output_mode();
-
-    /* Configure output terminal */
-    if (isatty(fileno(stdout)))
-    {
-        stdout_configure();
-    }
-    else
+    if ( ! stdout_is_atty )
     {
         // No color when piping
         option.color = -1;
+    }
+
+    if (stdin_is_atty && stdout_is_atty)
+    {
+        struct stat stat_stdin, stat_stdout;
+        stdin_and_stdout_connected_to_same_tty =
+            ( fstat(fileno(stdin), &stat_stdin) == 0 &&
+              fstat(fileno(stdout), &stat_stdout) == 0 &&
+              stat_stdin.st_rdev == stat_stdout.st_rdev );
+    }
+    else
+    {
+        stdin_and_stdout_connected_to_same_tty = false;
+    }
+
+    /* Configure input terminal */
+    if (stdin_is_atty)
+    {
+        stdin_configure();
+    }
+
+    /* Configure output terminal */
+    if (stdout_is_atty)
+    {
+        stdout_configure();
     }
 
     /* Add log exit handler */
