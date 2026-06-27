@@ -29,10 +29,22 @@ typedef enum
     SCRIPT_RUN_END,
 } script_run_t;
 
+typedef enum
+{
+    SCRIPT_RX_FILTER_PASS,
+    SCRIPT_RX_FILTER_DROP,
+} script_rx_filter_result_t;
+
 void script_interp_init(void);
 void script_device_bind(int fd);
 void script_device_unbind(void);
 void script_run(const char *script_filename);
 void script_run_as_specified_by_options(void);
 void script_do_line(const char *script_line);
+bool script_rx_filter_enabled(void);
+script_rx_filter_result_t script_rx_filter(const char *data,
+                                           size_t length,
+                                           const char **filtered_data,
+                                           size_t *filtered_length);
+void script_rx_filter_cleanup(void);
 const char *script_run_state_to_string(script_run_t state);

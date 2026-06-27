@@ -82,10 +82,17 @@ if enable_rs485
   tio_c_args += '-DHAVE_RS485'
 endif
 
-executable('tio',
+tio_exe = executable('tio',
   tio_sources,
   c_args: tio_c_args,
   dependencies: tio_dep,
   install: true )
+
+python3 = find_program('python3', required: false)
+if python3.found()
+  test('rx-filter', python3,
+    args: [files('../tests/rx_filter.py'), tio_exe],
+    timeout: 30)
+endif
 
 subdir('bash-completion')

@@ -460,6 +460,17 @@ SCRIPT API
 
              Returns the tio table on success or nil on error.
 
+       tio.rx_filter(callback_or_nil)
+             Register a receive filter callback for bytes read from the serial device. The callback receives each RX chunk as a Lua string before tio applies normal RX processing.
+
+             If the callback returns a string, tio processes that string as if it had been read from the serial device, including timestamping, input mappings, display, logging, and socket forwarding. If it returns nil, tio drops the chunk. Lua strings are byte strings, so filters may return embedded NUL bytes and arbitrary binary data.
+
+             Only the serial RX path is filtered; keyboard, stdin, socket-client input, and tio.write output to the serial device are unchanged.
+
+             The Lua state remains alive while a filter is registered, so callback closure state persists across RX chunks. Scripts run while a filter is active share that same Lua state. Call tio.rx_filter(nil) to disable the filter.
+
+             If the callback raises an error or returns a value other than a Lua string or nil, tio reports a warning, disables the filter, and passes the current chunk through unchanged. Other Lua types, including numbers, are not accepted as strings.
+
        tio.send(file, protocol)
              Send file using x/y-modem protocol.
 

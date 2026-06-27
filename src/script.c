@@ -49,6 +49,9 @@
 static int device_fd = 0;
 static lua_State *script_interp = NULL;
 static bool script_sleep_echo = true;
+static int rx_filter_ref = LUA_NOREF;
+static char *rx_filter_buffer = NULL;
+static size_t rx_filter_buffer_size = 0;
 
 // clang-format off
 static char script_init[] =
@@ -177,6 +180,33 @@ static void maybe_echo(lua_State *L)
         lua_pushvalue(L, -2);
         lua_call(L, 1, 0);
     }
+}
+
+// lua: tio.rx_filter(function(data) return data end)
+static int api_rx_filter(lua_State *L)
+{
+    if (lua_isnoneornil(L, 1))
+    {
+        if (rx_filter_ref != LUA_NOREF)
+        {
+            luaL_unref(L, LUA_REGISTRYINDEX, rx_filter_ref);
+            rx_filter_ref = LUA_NOREF;
+        }
+        return 0;
+    }
+
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+
+    if (rx_filter_ref != LUA_NOREF)
+    {
+        luaL_unref(L, LUA_REGISTRYINDEX, rx_filter_ref);
+        rx_filter_ref = LUA_NOREF;
+    }
+
+    lua_pushvalue(L, 1);
+    rx_filter_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    return 0;
 }
 
 // lua: tio.sleep(seconds)
@@ -1050,6 +1080,103 @@ static int api_set_sleep_echo(lua_State *L)
     return 0;
 }
 
+static void script_rx_filter_disable(void)
+{
+    if (script_interp == NULL)
+    {
+        rx_filter_ref = LUA_NOREF;
+        return;
+    }
+
+    if (rx_filter_ref != LUA_NOREF)
+    {
+        luaL_unref(script_interp, LUA_REGISTRYINDEX, rx_filter_ref);
+        rx_filter_ref = LUA_NOREF;
+    }
+}
+
+script_rx_filter_result_t script_rx_filter(const char *data,
+                                           size_t length,
+                                           const char **filtered_data,
+                                           size_t *filtered_length)
+{
+    *filtered_data = data;
+    *filtered_length = length;
+
+    if (!script_rx_filter_enabled())
+    {
+        return SCRIPT_RX_FILTER_PASS;
+    }
+
+    lua_rawgeti(script_interp, LUA_REGISTRYINDEX, rx_filter_ref);
+    lua_pushlstring(script_interp, data, length);
+
+    int error = lua_pcall(script_interp, 1, 1, 0);
+    if (error)
+    {
+        const char *message = lua_tostring(script_interp, -1);
+        tio_warning_printf("lua: rx_filter failed: %s; disabling filter",
+                           message != NULL ? message : "unknown error");
+        lua_pop(script_interp, 1);
+        script_rx_filter_disable();
+        return SCRIPT_RX_FILTER_PASS;
+    }
+
+    if (lua_isnil(script_interp, -1))
+    {
+        lua_pop(script_interp, 1);
+        return SCRIPT_RX_FILTER_DROP;
+    }
+
+    if (lua_type(script_interp, -1) != LUA_TSTRING)
+    {
+        tio_warning_printf("lua: rx_filter returned %s, expected string or nil; disabling filter",
+                           luaL_typename(script_interp, -1));
+        lua_pop(script_interp, 1);
+        script_rx_filter_disable();
+        return SCRIPT_RX_FILTER_PASS;
+    }
+
+    size_t output_length = 0;
+    const char *output = lua_tolstring(script_interp, -1, &output_length);
+
+    if (output_length == 0)
+    {
+        *filtered_data = "";
+        *filtered_length = 0;
+        lua_pop(script_interp, 1);
+        return SCRIPT_RX_FILTER_PASS;
+    }
+
+    if (output_length > rx_filter_buffer_size)
+    {
+        char *buffer = realloc(rx_filter_buffer, output_length);
+        if (buffer == NULL)
+        {
+            tio_warning_printf("lua: rx_filter output allocation failed; passing through input");
+            lua_pop(script_interp, 1);
+            return SCRIPT_RX_FILTER_PASS;
+        }
+
+        rx_filter_buffer = buffer;
+        rx_filter_buffer_size = output_length;
+    }
+
+    memcpy(rx_filter_buffer, output, output_length);
+
+    *filtered_data = rx_filter_buffer;
+    *filtered_length = output_length;
+
+    lua_pop(script_interp, 1);
+
+    return SCRIPT_RX_FILTER_PASS;
+}
+
+void script_rx_filter_cleanup(void)
+{
+    ; /* NOP */
+}
+
 static void script_buffer_run(lua_State *L, const char *script_buffer)
 {
     int error;
@@ -1083,6 +1210,7 @@ static void script_file_run(lua_State *L, const char *filename)
 static const struct luaL_Reg tio_lib[] =
 {
     { "echo", api_echo},
+    { "rx_filter", api_rx_filter},
     { "sleep", api_sleep},
     { "msleep", api_msleep},
     { "line_set", api_line_set},
@@ -1387,4 +1515,9 @@ void script_interp_init(void)
         tio_error_printf("Could not start script interpreter.");
         exit(EXIT_FAILURE);
     }
+}
+
+bool script_rx_filter_enabled(void)
+{
+    return script_interp != NULL && rx_filter_ref != LUA_NOREF;
 }
