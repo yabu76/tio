@@ -209,17 +209,42 @@ static void optional_local_echo(char c)
         return;
     }
 
-    printchar(c);
-
-    if ((option.output_mode == OUTPUT_MODE_NORMAL) && (c == 127))
+    // script hook on local send
+    const char *lotx_buffer = &c;
+    size_t lotx_buffer_length = sizeof(c);
+    script_hook_id_t hook_id = SCRIPT_HOOK_ID_LOCAL_SEND;
+    if (script_hook_enabled(hook_id))
     {
-        // Force destructive backspace
-        printf("\b \b");
+        script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                              &c,
+                                                              sizeof(c),
+                                                              &lotx_buffer,
+                                                              &lotx_buffer_length);
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+        }
+    }
+    if (lotx_buffer_length == 0)
+    {
+        return;
     }
 
-    if (option.log)
+    for (size_t i = 0; i < lotx_buffer_length; i++)
     {
-        log_putc(c);
+        c = lotx_buffer[i];
+        printchar(c);
+
+        if ((option.output_mode == OUTPUT_MODE_NORMAL) && (c == 127))
+        {
+            // Force destructive backspace
+            printf("\b \b");
+        }
+
+        if (option.log)
+        {
+            log_putc(c);
+        }
     }
 }
 
@@ -460,13 +485,40 @@ static ssize_t tty_raw_write(int fd)
 ssize_t tty_write(int fd, const void *buffer, size_t count)
 {
     int status;
-    const char *cp = (char *)buffer;
     size_t i;
+
+    /* script hook on io send */
+    const char *tx_buffer = buffer;
+    size_t tx_buffer_length = count;
+    script_hook_id_t hook_id = SCRIPT_HOOK_ID_IO_SEND;
+
+    if (script_hook_enabled(hook_id))
+    {
+        script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                              buffer,
+                                                              count,
+                                                              &tx_buffer,
+                                                              &tx_buffer_length);
+
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+            tx_buffer_length = 0;
+            return tx_buffer_length;
+        }
+        if (tx_buffer_length == 0)
+        {
+            return tx_buffer_length;
+        }
+    }
+
+    const char *cp = (char *)tx_buffer;
+
     raw_t raw = tty_get_raw_mode();
     if (raw != RAW_OFF)
     {
         /* RAW mode */
-        for (i = 0; i < count; i++, cp++)
+        for (i = 0; i < tx_buffer_length; i++, cp++)
         {
             if (tty_buffer_count >= BUFSIZ)
             {
@@ -486,7 +538,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
     else
     {
         /* not RAW mode */
-        for (i = 0; i < count; i++, cp++)
+        for (i = 0; i < tx_buffer_length; i++, cp++)
         {
             if (tty_buffer_count >= BUFSIZ)
             {
@@ -543,7 +595,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
     {
         return status;
     }
-    return count;
+    return tx_buffer_length;
 }
 
 void *tty_stdin_input_thread(void *arg)
@@ -2916,7 +2968,11 @@ void tty_wait_for_device(void)
                     /* Handle commands */
                     handle_command_sequence(input_char, NULL, NULL);
                 }
-                socket_handle_input(&rdfs, NULL);
+                const char *output_buffer = NULL;
+                size_t output_buffer_length = 0;
+                socket_handle_input(&rdfs, &output_buffer, &output_buffer_length);
+                UNUSED(output_buffer);
+                UNUSED(output_buffer_length);
             }
             else if (status == -1)
             {
@@ -3229,6 +3285,9 @@ int tty_connect(void)
         goto error_tcsetattr;
     }
 
+    /* Manage script activation */
+    script_device_bind(device_fd);
+
     /* If stdin is a pipe forward all input to tty device */
     if (interactive_mode == false)
     {
@@ -3243,8 +3302,30 @@ int tty_connect(void)
             }
             else if (ret > 0)
             {
+                // script hook on local receive
+                const char *lorx_buffer = input_buffer;
+                size_t lorx_buffer_length = ret;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_LOCAL_RECEIVE;
+                if (script_hook_enabled(hook_id))
+                {
+                    script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                                          lorx_buffer,
+                                                                          lorx_buffer_length,
+                                                                          &lorx_buffer,
+                                                                          &lorx_buffer_length);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                        continue;
+                    }
+                }
+                if (lorx_buffer_length == 0)
+                {
+                    continue;
+                }
+
                 // Forward to tty device
-                ret = tty_write(device_fd, input_buffer, ret);
+                ret = tty_write(device_fd, lorx_buffer, lorx_buffer_length);
                 if (ret < 0)
                 {
                     tio_error_printf("Could not write to serial device (%s)", strerror(errno));
@@ -3259,9 +3340,6 @@ int tty_connect(void)
         }
         tty_sync(device_fd);
     }
-
-    /* Manage script activation */
-    script_device_bind(device_fd);
 
     if (option.script_run != SCRIPT_RUN_NEVER)
     {
@@ -3326,30 +3404,26 @@ int tty_connect(void)
                 /* Update receive statistics */
                 rx_total += bytes_read;
 
+                /* script hook on io receive */
                 const char *rx_buffer = input_buffer;
                 size_t rx_buffer_length = bytes_read;
-                bool rx_filter_used = false;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_IO_RECEIVE;
 
-                if (script_rx_filter_enabled())
+                if (script_hook_enabled(hook_id))
                 {
-                    rx_filter_used = true;
-                    script_rx_filter_result_t filter_result = script_rx_filter(input_buffer,
-                                                                               bytes_read,
-                                                                               &rx_buffer,
-                                                                               &rx_buffer_length);
-                    if (filter_result == SCRIPT_RX_FILTER_DROP)
+                    script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                                          input_buffer,
+                                                                          bytes_read,
+                                                                          &rx_buffer,
+                                                                          &rx_buffer_length);
+                    if (hook_result == SCRIPT_HOOK_DROP)
                     {
-                        script_rx_filter_cleanup();
+                        tio_error_printf("Dropped hook due to fatal error");
                         continue;
                     }
                 }
-
                 if (rx_buffer_length == 0)
                 {
-                    if (rx_filter_used)
-                    {
-                        script_rx_filter_cleanup();
-                    }
                     continue;
                 }
 
@@ -3498,8 +3572,27 @@ int tty_connect(void)
                     }
                     else
                     {
-                        /* Print received tty character to stdout */
-                        printchar(input_char);
+                        // script hook on local send
+                        const char *lotx_buffer = &input_char;
+                        size_t lotx_buffer_length = sizeof(input_char);
+                        script_hook_id_t lotx_hook_id = SCRIPT_HOOK_ID_LOCAL_SEND;
+                        if (script_hook_enabled(lotx_hook_id))
+                        {
+                            script_hook_result_t hook_result = script_hook_filter(lotx_hook_id,
+                                                                                  &input_char,
+                                                                                  sizeof(input_char),
+                                                                                  &lotx_buffer,
+                                                                                  &lotx_buffer_length);
+                            if (hook_result == SCRIPT_HOOK_DROP)
+                            {
+                                tio_error_printf("Dropped hook due to fatal error");
+                            }
+                        }
+                        for (size_t j = 0; j < lotx_buffer_length; j++)
+                        {
+                            /* Print received tty character to stdout */
+                            printchar(lotx_buffer[j]);
+                        }
                     }
 
                     /* Write to log */
@@ -3516,11 +3609,6 @@ int tty_connect(void)
                     {
                         do_timestamp = true;
                     }
-                }
-
-                if (rx_filter_used)
-                {
-                    script_rx_filter_cleanup();
                 }
             }
             else if (FD_ISSET(pipefd[0], &rdfs))
@@ -3542,10 +3630,28 @@ int tty_connect(void)
                     exit(EXIT_SUCCESS);
                 }
 
-                /* Process input byte by byte */
-                for (int i=0; i<bytes_read; i++)
+                /* script hook on local receive */
+                const char *lorx_buffer = input_buffer;
+                size_t lorx_buffer_length = bytes_read;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_LOCAL_RECEIVE;
+                if (script_hook_enabled(hook_id))
                 {
-                    input_char = input_buffer[i];
+                    script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                                          input_buffer,
+                                                                          bytes_read,
+                                                                          &lorx_buffer,
+                                                                          &lorx_buffer_length);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                        lorx_buffer_length = 0;
+                    }
+                }
+
+                /* Process input byte by byte */
+                for (size_t i = 0; i < lorx_buffer_length; i++)
+                {
+                    input_char = lorx_buffer[i];
 
                     /* Forward input to output */
                     output_char = input_char;
@@ -3611,12 +3717,17 @@ int tty_connect(void)
                 /***************************/
                 /* Input from socket ready */
                 /***************************/
+                const char *output_buffer = NULL;
+                size_t output_buffer_length = 0;
 
-                forward = socket_handle_input(&rdfs, &output_char);
+                forward = socket_handle_input(&rdfs, &output_buffer, &output_buffer_length);
 
                 if (forward)
                 {
-                    forward_to_tty(device_fd, output_char);
+                    for (size_t j = 0; j < output_buffer_length; j++)
+                    {
+                        forward_to_tty(device_fd, output_buffer[j]);
+                    }
                 }
 
                 tty_sync(device_fd);

@@ -49,9 +49,8 @@
 static int device_fd = 0;
 static lua_State *script_interp = NULL;
 static bool script_sleep_echo = true;
-static int rx_filter_ref = LUA_NOREF;
-static char *rx_filter_buffer = NULL;
-static size_t rx_filter_buffer_size = 0;
+
+static script_hook_t script_hook[SCRIPT_HOOK_ID_NUM];
 
 // clang-format off
 static char script_init[] =
@@ -180,33 +179,6 @@ static void maybe_echo(lua_State *L)
         lua_pushvalue(L, -2);
         lua_call(L, 1, 0);
     }
-}
-
-// lua: tio.rx_filter(function(data) return data end)
-static int api_rx_filter(lua_State *L)
-{
-    if (lua_isnoneornil(L, 1))
-    {
-        if (rx_filter_ref != LUA_NOREF)
-        {
-            luaL_unref(L, LUA_REGISTRYINDEX, rx_filter_ref);
-            rx_filter_ref = LUA_NOREF;
-        }
-        return 0;
-    }
-
-    luaL_checktype(L, 1, LUA_TFUNCTION);
-
-    if (rx_filter_ref != LUA_NOREF)
-    {
-        luaL_unref(L, LUA_REGISTRYINDEX, rx_filter_ref);
-        rx_filter_ref = LUA_NOREF;
-    }
-
-    lua_pushvalue(L, 1);
-    rx_filter_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
-    return 0;
 }
 
 // lua: tio.sleep(seconds)
@@ -1080,61 +1052,138 @@ static int api_set_sleep_echo(lua_State *L)
     return 0;
 }
 
-static void script_rx_filter_disable(void)
+// lua: tio.set_hook(hook_id, function(data) return data end)
+static int api_set_hook(lua_State *L)
 {
+    script_hook_id_t hook_id;
+    if (lua_isnoneornil(L, 1))
+    {
+        return luaL_error(L, "arguments are hook_id and function");
+    }
+    hook_id = luaL_checkinteger(L, 1);
+    if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
+    {
+        return luaL_error(L, "hook_id is out of range");
+    }
+
+    script_hook_t *hook = &script_hook[hook_id];
+
+    if (lua_isnoneornil(L, 2))
+    {
+        if (hook->ref != LUA_NOREF)
+        {
+            luaL_unref(L, LUA_REGISTRYINDEX, hook->ref);
+            hook->ref = LUA_NOREF;
+        }
+        return 0;
+    }
+
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (hook->ref != LUA_NOREF)
+    {
+        luaL_unref(L, LUA_REGISTRYINDEX, hook->ref);
+        hook->ref = LUA_NOREF;
+    }
+
+    lua_pushvalue(L, 2);
+    hook->ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    return 0;
+}
+
+static void script_hook_disable(script_hook_id_t hook_id)
+{
+    script_hook_t *hook = &script_hook[hook_id];
+
     if (script_interp == NULL)
     {
-        rx_filter_ref = LUA_NOREF;
+        hook->ref = LUA_NOREF;
         return;
     }
 
-    if (rx_filter_ref != LUA_NOREF)
+    if (hook->ref != LUA_NOREF)
     {
-        luaL_unref(script_interp, LUA_REGISTRYINDEX, rx_filter_ref);
-        rx_filter_ref = LUA_NOREF;
+        luaL_unref(script_interp, LUA_REGISTRYINDEX, hook->ref);
+        if (hook->buffer)
+        {
+            free(hook->buffer);
+        }
+        hook->ref = LUA_NOREF;
+        hook->buffer = NULL;
+        hook->buffer_size = 0;
     }
 }
 
-script_rx_filter_result_t script_rx_filter(const char *data,
-                                           size_t length,
-                                           const char **filtered_data,
-                                           size_t *filtered_length)
+static void script_hook_disable_all(void)
+{
+    for (int hook_id = 0; hook_id < SCRIPT_HOOK_ID_NUM; hook_id++)
+    {
+        script_hook_disable(hook_id);
+    }
+}
+
+static void script_hook_init(void)
+{
+    static const script_hook_t empty_hook = {
+        .ref = LUA_NOREF,
+        .buffer = NULL,
+        .buffer_size = 0
+    };
+    for (int hook_id = 0; hook_id < SCRIPT_HOOK_ID_NUM; hook_id++)
+    {
+        script_hook[hook_id] = empty_hook;
+    }
+}
+
+script_hook_result_t script_hook_filter(script_hook_id_t hook_id,
+                                        const char *data,
+                                        size_t length,
+                                        const char **filtered_data,
+                                        size_t *filtered_length)
 {
     *filtered_data = data;
     *filtered_length = length;
 
-    if (!script_rx_filter_enabled())
+    if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
     {
-        return SCRIPT_RX_FILTER_PASS;
+        return SCRIPT_HOOK_DROP;
     }
 
-    lua_rawgeti(script_interp, LUA_REGISTRYINDEX, rx_filter_ref);
+    script_hook_t *hook = &script_hook[hook_id];
+
+    if (!script_hook_enabled(hook_id))
+    {
+        return SCRIPT_HOOK_OK;
+    }
+
+    lua_rawgeti(script_interp, LUA_REGISTRYINDEX, hook->ref);
     lua_pushlstring(script_interp, data, length);
 
     int error = lua_pcall(script_interp, 1, 1, 0);
     if (error)
     {
         const char *message = lua_tostring(script_interp, -1);
-        tio_warning_printf("lua: rx_filter failed: %s; disabling filter",
+        tio_warning_printf("lua: hook_filter failed: %s; disabling hook",
                            message != NULL ? message : "unknown error");
         lua_pop(script_interp, 1);
-        script_rx_filter_disable();
-        return SCRIPT_RX_FILTER_PASS;
+        script_hook_disable(hook_id);
+        return SCRIPT_HOOK_OK;
     }
 
     if (lua_isnil(script_interp, -1))
     {
         lua_pop(script_interp, 1);
-        return SCRIPT_RX_FILTER_DROP;
+        script_hook_cleanup(hook_id);
+        return SCRIPT_HOOK_DROP;
     }
 
     if (lua_type(script_interp, -1) != LUA_TSTRING)
     {
-        tio_warning_printf("lua: rx_filter returned %s, expected string or nil; disabling filter",
+        tio_warning_printf("lua: hook_filter returned %s, expected string or nil; disabling hook",
                            luaL_typename(script_interp, -1));
         lua_pop(script_interp, 1);
-        script_rx_filter_disable();
-        return SCRIPT_RX_FILTER_PASS;
+        script_hook_disable(hook_id);
+        return SCRIPT_HOOK_OK;
     }
 
     size_t output_length = 0;
@@ -1145,36 +1194,36 @@ script_rx_filter_result_t script_rx_filter(const char *data,
         *filtered_data = "";
         *filtered_length = 0;
         lua_pop(script_interp, 1);
-        return SCRIPT_RX_FILTER_PASS;
+        return SCRIPT_HOOK_OK;
     }
 
-    if (output_length > rx_filter_buffer_size)
+    if (output_length > hook->buffer_size)
     {
-        char *buffer = realloc(rx_filter_buffer, output_length);
+        char *buffer = realloc(hook->buffer, output_length);
         if (buffer == NULL)
         {
-            tio_warning_printf("lua: rx_filter output allocation failed; passing through input");
+            tio_warning_printf("lua: hook_filter output allocation failed; passing through input");
             lua_pop(script_interp, 1);
-            return SCRIPT_RX_FILTER_PASS;
+            return SCRIPT_HOOK_OK;
         }
 
-        rx_filter_buffer = buffer;
-        rx_filter_buffer_size = output_length;
+        hook->buffer = buffer;
+        hook->buffer_size = output_length;
     }
 
-    memcpy(rx_filter_buffer, output, output_length);
+    memcpy(hook->buffer, output, output_length);
 
-    *filtered_data = rx_filter_buffer;
+    *filtered_data = hook->buffer;
     *filtered_length = output_length;
 
     lua_pop(script_interp, 1);
 
-    return SCRIPT_RX_FILTER_PASS;
+    return SCRIPT_HOOK_OK;
 }
 
-void script_rx_filter_cleanup(void)
+void script_hook_cleanup(script_hook_id_t hook_id)
 {
-    ; /* NOP */
+    script_hook_disable(hook_id);
 }
 
 static void script_buffer_run(lua_State *L, const char *script_buffer)
@@ -1210,7 +1259,6 @@ static void script_file_run(lua_State *L, const char *filename)
 static const struct luaL_Reg tio_lib[] =
 {
     { "echo", api_echo},
-    { "rx_filter", api_rx_filter},
     { "sleep", api_sleep},
     { "msleep", api_msleep},
     { "line_set", api_line_set},
@@ -1252,6 +1300,8 @@ static const struct luaL_Reg tio_lib[] =
     { "subcmd_puts", api_subcmd_puts},
     { "subcmd_warning_puts", api_subcmd_warning_puts},
     { "subcmd_error_puts", api_subcmd_error_puts},
+
+    { "set_hook", api_set_hook},
 
     {NULL, NULL}
 };
@@ -1300,11 +1350,14 @@ static void script_set_consts(lua_State *L)
     script_set_field_integer(L, "IM_NORMAL", INPUT_MODE_NORMAL);
     script_set_field_integer(L, "IM_HEX", INPUT_MODE_HEX);
     script_set_field_integer(L, "IM_LINE", INPUT_MODE_LINE);
+
     script_set_field_integer(L, "OM_NORMAL", OUTPUT_MODE_NORMAL);
     script_set_field_integer(L, "OM_HEX", OUTPUT_MODE_HEX);
+
     script_set_field_integer(L, "RAW_OFF", RAW_OFF);
     script_set_field_integer(L, "RAW_ON", RAW_ON_DELAY);
     script_set_field_integer(L, "RAW_ON_NODELAY", RAW_ON_NODELAY);
+
     script_set_field_integer(L, "TS_OFF", TIMESTAMP_NONE);
     script_set_field_integer(L, "TS_24HOUR", TIMESTAMP_24HOUR);
     script_set_field_integer(L, "TS_24HOUR_START", TIMESTAMP_24HOUR_START);
@@ -1312,18 +1365,30 @@ static void script_set_consts(lua_State *L)
     script_set_field_integer(L, "TS_ISO8601", TIMESTAMP_ISO8601);
     script_set_field_integer(L, "TS_EPOCH", TIMESTAMP_EPOCH);
     script_set_field_integer(L, "TS_EPOCH_USEC", TIMESTAMP_EPOCH_USEC);
+
     script_set_field_integer(L, "LN_TOGGLE", 2);
     script_set_field_integer(L, "LN_HIGH", 1);
     script_set_field_integer(L, "LN_LOW", 0);
+
     script_set_field_integer(L, "XM_SUM", XMODEM_SUM);
     script_set_field_integer(L, "XM_CRC", XMODEM_CRC);
     script_set_field_integer(L, "XM_1K", XMODEM_1K);
     script_set_field_integer(L, "YM_NORMAL", YMODEM);
+
     script_set_field_integer(L, "SA_INTERACTIVE", STATE_INTERACTIVE);
     script_set_field_integer(L, "SA_STARTING", STATE_STARTING);
     script_set_field_integer(L, "SA_PIPED_INPUT", STATE_PIPED_INPUT);
     script_set_field_integer(L, "SA_EXEC_SHELL_COMMAND", STATE_EXEC_SHELL_COMMAND);
     script_set_field_integer(L, "SA_XYMODEM", STATE_XYMODEM);
+
+    script_set_field_integer(L, "HK_IO_RECEIVE", SCRIPT_HOOK_ID_IO_RECEIVE);
+    script_set_field_integer(L, "HK_IO_SEND", SCRIPT_HOOK_ID_IO_SEND);
+    script_set_field_integer(L, "HK_LOCAL_RECEIVE", SCRIPT_HOOK_ID_LOCAL_RECEIVE);
+    script_set_field_integer(L, "HK_LOCAL_SEND", SCRIPT_HOOK_ID_LOCAL_SEND);
+    script_set_field_integer(L, "HK_SOCKET_RECEIVE", SCRIPT_HOOK_ID_SOCKET_RECEIVE);
+    script_set_field_integer(L, "HK_SOCKET_SEND", SCRIPT_HOOK_ID_SOCKET_SEND);
+    script_set_field_integer(L, "HK_SIGNAL_CHANGE", SCRIPT_HOOK_ID_SIGNAL_CHANGE);
+    script_set_field_integer(L, "HK_TIMER_EXPIRE", SCRIPT_HOOK_ID_TIMER_EXPIRE);
 
     lua_pop(L, 2);
 }
@@ -1346,8 +1411,11 @@ static lua_State *script_interp_new(void)
     lua_State *L;
 
     if (script_interp != NULL) {
+        script_hook_disable_all();
         lua_close(script_interp);
     }
+
+    script_hook_init();
 
     L = luaL_newstate();
     script_interp = L;
@@ -1517,7 +1585,11 @@ void script_interp_init(void)
     }
 }
 
-bool script_rx_filter_enabled(void)
+bool script_hook_enabled(script_hook_id_t hook_id)
 {
-    return script_interp != NULL && rx_filter_ref != LUA_NOREF;
+    if (script_interp == NULL || (unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
+    {
+        return false;
+    }
+    return script_hook[hook_id].ref != LUA_NOREF;
 }

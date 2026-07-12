@@ -28,4 +28,4 @@
 void socket_configure(void);
 void socket_write(char input_char);
 int socket_add_fds(fd_set *fds, bool connected);
-bool socket_handle_input(fd_set *fds, char *output_char);
+bool socket_handle_input(fd_set *rdfs, const char **output_buffer, size_t *output_buffer_length);

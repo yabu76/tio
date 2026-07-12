@@ -31,9 +31,29 @@ typedef enum
 
 typedef enum
 {
-    SCRIPT_RX_FILTER_PASS,
-    SCRIPT_RX_FILTER_DROP,
-} script_rx_filter_result_t;
+    SCRIPT_HOOK_OK,
+    SCRIPT_HOOK_ERROR,
+    SCRIPT_HOOK_DROP,
+} script_hook_result_t;
+
+typedef enum
+{
+    SCRIPT_HOOK_ID_IO_RECEIVE = 0,
+    SCRIPT_HOOK_ID_IO_SEND,
+    SCRIPT_HOOK_ID_LOCAL_RECEIVE,
+    SCRIPT_HOOK_ID_LOCAL_SEND,
+    SCRIPT_HOOK_ID_SOCKET_RECEIVE,
+    SCRIPT_HOOK_ID_SOCKET_SEND,
+    SCRIPT_HOOK_ID_SIGNAL_CHANGE,
+    SCRIPT_HOOK_ID_TIMER_EXPIRE,
+    SCRIPT_HOOK_ID_NUM
+} script_hook_id_t;
+
+typedef struct {
+    int ref;
+    char *buffer;
+    size_t buffer_size;
+} script_hook_t;
 
 void script_interp_init(void);
 void script_device_bind(int fd);
@@ -41,10 +61,13 @@ void script_device_unbind(void);
 void script_run(const char *script_filename);
 void script_run_as_specified_by_options(void);
 void script_do_line(const char *script_line);
-bool script_rx_filter_enabled(void);
-script_rx_filter_result_t script_rx_filter(const char *data,
-                                           size_t length,
-                                           const char **filtered_data,
-                                           size_t *filtered_length);
-void script_rx_filter_cleanup(void);
+
+bool script_hook_enabled(script_hook_id_t hook_id);
+void script_hook_cleanup(script_hook_id_t hook_id);
+
+script_hook_result_t script_hook_filter(script_hook_id_t hook_id,
+                                        const char *data, size_t length,
+                                        const char **filtered_data, size_t *filtered_length);
+script_hook_result_t script_hook_signal_change(uint16_t signal);
+
 const char *script_run_state_to_string(script_run_t state);
