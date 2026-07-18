@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <sys/time.h>
+
 typedef enum
 {
     SCRIPT_RUN_ONCE,
@@ -68,6 +70,7 @@ void script_hook_cleanup(script_hook_id_t hook_id);
 script_hook_result_t script_hook_filter(script_hook_id_t hook_id,
                                         const char *data, size_t length,
                                         const char **filtered_data, size_t *filtered_length);
-script_hook_result_t script_hook_signal_change(uint16_t signal);
+script_hook_result_t script_hook_signal_change(script_hook_id_t hook_id, int lstat_now, int lstat_before);
+script_hook_result_t script_hook_timer_expire(script_hook_id_t hook_id, unsigned long elpased_ms);
 
 const char *script_run_state_to_string(script_run_t state);

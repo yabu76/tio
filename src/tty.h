@@ -111,3 +111,5 @@ int tty_tcsetattr(int fd);
 int tty_inkey(int mseconds);
 int tty_simple_readln(const char *prompt);
 int tty_subcmd_readln(const char *title_prompt);
+void timer_start(int expire_ms, bool auto_repeated);
+void timer_stop(void);

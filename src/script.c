@@ -1052,6 +1052,28 @@ static int api_set_sleep_echo(lua_State *L)
     return 0;
 }
 
+// lua: tio.start_timer(expired_ms, auto_repeated)
+static int api_start_timer(lua_State *L)
+{
+    int expire_ms = luaL_checkinteger(L, 1);
+    bool auto_repeated;
+    if ( ! (lua_isboolean(L, 2) || lua_isnoneornil(L, 2)) )
+    {
+        return luaL_error(L, "argument2 is not boolean");
+    }
+    auto_repeated = lua_toboolean(L, 2);
+    timer_start(expire_ms, auto_repeated);
+    return 0;
+}
+
+// lua: tio.stop_timer()
+static int api_stop_timer(lua_State *L)
+{
+    UNUSED(L);
+    timer_stop();
+    return 0;
+}
+
 // lua: tio.set_hook(hook_id, function(data) return data end)
 static int api_set_hook(lua_State *L)
 {
@@ -1221,6 +1243,85 @@ script_hook_result_t script_hook_filter(script_hook_id_t hook_id,
     return SCRIPT_HOOK_OK;
 }
 
+script_hook_result_t script_hook_signal_change(script_hook_id_t hook_id, int lstat_now, int lstat_before)
+{
+    if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
+    {
+        return SCRIPT_HOOK_DROP;
+    }
+
+    script_hook_t *hook = &script_hook[hook_id];
+
+    if (!script_hook_enabled(hook_id))
+    {
+        return SCRIPT_HOOK_OK;
+    }
+
+    lua_rawgeti(script_interp, LUA_REGISTRYINDEX, hook->ref);
+    lua_pushinteger(script_interp, lstat_now);
+    lua_pushinteger(script_interp, lstat_before);
+
+    int error = lua_pcall(script_interp, 2, 1, 0);
+    if (error)
+    {
+        const char *message = lua_tostring(script_interp, -1);
+        tio_warning_printf("lua: hook_filter failed: %s; disabling hook",
+                           message != NULL ? message : "unknown error");
+        lua_pop(script_interp, 1);
+        script_hook_disable(hook_id);
+        return SCRIPT_HOOK_OK;
+    }
+
+    if (lua_isnil(script_interp, -1))
+    {
+        lua_pop(script_interp, 1);
+        script_hook_cleanup(hook_id);
+        return SCRIPT_HOOK_DROP;
+    }
+
+    lua_pop(script_interp, 1);
+    return SCRIPT_HOOK_OK;
+}
+
+script_hook_result_t script_hook_timer_expire(script_hook_id_t hook_id, unsigned long elapsed_ms)
+{
+    if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
+    {
+        return SCRIPT_HOOK_DROP;
+    }
+
+    script_hook_t *hook = &script_hook[hook_id];
+
+    if (!script_hook_enabled(hook_id))
+    {
+        return SCRIPT_HOOK_OK;
+    }
+
+    lua_rawgeti(script_interp, LUA_REGISTRYINDEX, hook->ref);
+    lua_pushinteger(script_interp, elapsed_ms);
+
+    int error = lua_pcall(script_interp, 1, 1, 0);
+    if (error)
+    {
+        const char *message = lua_tostring(script_interp, -1);
+        tio_warning_printf("lua: hook_filter failed: %s; disabling hook",
+                           message != NULL ? message : "unknown error");
+        lua_pop(script_interp, 1);
+        script_hook_disable(hook_id);
+        return SCRIPT_HOOK_OK;
+    }
+
+    if (lua_isnil(script_interp, -1))
+    {
+        lua_pop(script_interp, 1);
+        script_hook_cleanup(hook_id);
+        return SCRIPT_HOOK_DROP;
+    }
+
+    lua_pop(script_interp, 1);
+    return SCRIPT_HOOK_OK;
+}
+
 void script_hook_cleanup(script_hook_id_t hook_id)
 {
     script_hook_disable(hook_id);
@@ -1300,6 +1401,9 @@ static const struct luaL_Reg tio_lib[] =
     { "subcmd_puts", api_subcmd_puts},
     { "subcmd_warning_puts", api_subcmd_warning_puts},
     { "subcmd_error_puts", api_subcmd_error_puts},
+
+    { "start_timer", api_start_timer},
+    { "stop_timer", api_stop_timer},
 
     { "set_hook", api_set_hook},
 
@@ -1389,6 +1493,13 @@ static void script_set_consts(lua_State *L)
     script_set_field_integer(L, "HK_SOCKET_SEND", SCRIPT_HOOK_ID_SOCKET_SEND);
     script_set_field_integer(L, "HK_SIGNAL_CHANGE", SCRIPT_HOOK_ID_SIGNAL_CHANGE);
     script_set_field_integer(L, "HK_TIMER_EXPIRE", SCRIPT_HOOK_ID_TIMER_EXPIRE);
+
+    script_set_field_integer(L, "SG_BMASK_DTR", TIOCM_DTR);
+    script_set_field_integer(L, "SG_BMASK_RTS", TIOCM_RTS);
+    script_set_field_integer(L, "SG_BMASK_CTS", TIOCM_CTS);
+    script_set_field_integer(L, "SG_BMASK_DSR", TIOCM_DSR);
+    script_set_field_integer(L, "SG_BMASK_CS", TIOCM_CD);
+    script_set_field_integer(L, "SG_BMASK_RI", TIOCM_RI);
 
     lua_pop(L, 2);
 }

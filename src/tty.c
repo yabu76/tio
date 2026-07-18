@@ -153,6 +153,12 @@ typedef enum
 #define MLINE_MAX 4096
 #define INKEY_CHARS_MAX 16
 
+#define TIMER_TICK_MS 100
+bool timer_valid = false;
+bool timer_auto_repeated = false;
+struct timeval timer_start_time = {};
+int timer_expire_diff_ms = 0;
+
 // clang-format off
 const char random_array[] =
 {
@@ -927,6 +933,103 @@ static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int d
             break;
     }
 }
+
+static bool tty_line_changed(int fd, int *lstat_now, int *lstat_before)
+{
+    static bool line_state_valid = false;
+    static int line_state;
+    const int LINE_STATE_INPUT_MASK = (TIOCM_CTS | TIOCM_DSR | TIOCM_CD | TIOCM_RI);
+    int lstat;
+
+    if (line_state_valid)
+    {
+        *lstat_before = line_state;
+    }
+    else
+    {
+        *lstat_before = -1;
+    }
+    if (ioctl(fd, TIOCMGET, &lstat) < 0)
+    {
+        *lstat_now = *lstat_before;
+        return false;
+    }
+
+    line_state = lstat;
+    line_state_valid = true;
+
+    *lstat_now = lstat;
+
+    return (*lstat_now & LINE_STATE_INPUT_MASK) != (*lstat_before & LINE_STATE_INPUT_MASK);
+}
+
+void timer_start(int expire_ms, bool auto_repeated)
+{
+    gettimeofday(&timer_start_time, NULL);
+    timer_auto_repeated = auto_repeated;
+    timer_expire_diff_ms = expire_ms;
+    timer_valid = true;
+}
+
+void timer_stop(void)
+{
+    timer_valid = false;
+}
+
+void handle_timer_tick(bool ticked)
+{
+    // this funcion should be called with script_hook_enabled(SCRIPT_HOOK_ID_TIMER_EXPIRE) true.
+    static struct timeval tval_before = {}, tval_now;
+    static bool tval_valid = false;
+    struct timeval tval_elapsed;
+
+    if (tval_valid == false)
+    {
+        gettimeofday(&tval_before, NULL);
+        tval_valid = true;
+        return;
+    }
+    gettimeofday(&tval_now, NULL);
+
+    if ( ! ticked )
+    {
+        timersub(&tval_now, &tval_before, &tval_elapsed);
+        ticked = ((tval_elapsed.tv_sec * 1000 + tval_elapsed.tv_usec / 1000) >= TIMER_TICK_MS);
+    }
+
+    if ( ticked )
+    {
+        // script hook on timer expire
+        if (timer_valid)
+        {
+            struct timeval timer_elapsed_diff;
+            timersub(&tval_now, &timer_start_time, &timer_elapsed_diff);
+
+            int timer_elapsed_diff_ms = timer_elapsed_diff.tv_sec * 1000 + timer_elapsed_diff.tv_usec / 1000;
+            if (timer_elapsed_diff_ms >= timer_expire_diff_ms)
+            {
+                if (timer_auto_repeated)
+                {
+                    timer_start_time = tval_now;
+                    timer_valid = true;
+                }
+                else
+                {
+                    timer_valid = false;
+                }
+
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_TIMER_EXPIRE;
+                script_hook_result_t hook_result = script_hook_timer_expire(hook_id, timer_elapsed_diff_ms);
+                if (hook_result == SCRIPT_HOOK_DROP)
+                {
+                    tio_error_printf("Dropped hook due to fatal error");
+                }
+            }
+        }
+        tval_before = tval_now;
+    }
+}
+
 
 int tty_inkey(int mseconds)
 {
@@ -3199,7 +3302,7 @@ int tty_connect(void)
     int    status;
     bool   do_timestamp = false;
     char*  now = NULL;
-    struct timeval tval_before = {}, tval_now, tval_result;
+    struct timeval hexout_tval_before = {}, hexout_tval_now, hexout_tval_result;
 
     state = STATE_STARTING;
 
@@ -3375,6 +3478,10 @@ int tty_connect(void)
     /* Input loop */
     while (true)
     {
+        struct timeval tv_tick;
+        tv_tick.tv_sec = TIMER_TICK_MS / 1000;
+        tv_tick.tv_usec = (TIMER_TICK_MS % 1000) * 1000;
+
         FD_ZERO(&rdfs);
         FD_SET(device_fd, &rdfs);
         FD_SET(pipefd[0], &rdfs);
@@ -3383,7 +3490,40 @@ int tty_connect(void)
         maxfd = MAX(maxfd, socket_add_fds(&rdfs, true));
 
         /* Block until input becomes available */
-        status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
+        //        status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
+        status = select(maxfd + 1, &rdfs, NULL, NULL, &tv_tick);
+
+        /* check line signal and loop timer */
+        if (status >= 0)
+        {
+            // script hook on signal change
+            script_hook_id_t hook_id = SCRIPT_HOOK_ID_SIGNAL_CHANGE;
+            if (script_hook_enabled(hook_id))
+            {
+                int lstat_now, lstat_before;
+                if (tty_line_changed(device_fd, &lstat_now, &lstat_before))
+                {
+                    script_hook_result_t hook_result = script_hook_signal_change(hook_id, lstat_now, lstat_before);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                    }
+                }
+            }
+
+            // script hook on timer expired
+            if (script_hook_enabled(SCRIPT_HOOK_ID_TIMER_EXPIRE))
+            {
+                handle_timer_tick(status == 0);
+            }
+
+            // if timeout event only, reloop
+            if (status == 0)
+            {
+                continue;
+            }
+        }
+
         if (status > 0)
         {
             bool forward = false;
@@ -3432,9 +3572,9 @@ int tty_connect(void)
                 {
                     if (option.timestamp != TIMESTAMP_NONE)
                     {
-                        gettimeofday(&tval_now, NULL);
-                        timersub(&tval_now, &tval_before, &tval_result);
-                        if ((tval_result.tv_sec * 1000 + tval_result.tv_usec / 1000) > option.timestamp_timeout)
+                        gettimeofday(&hexout_tval_now, NULL);
+                        timersub(&hexout_tval_now, &hexout_tval_before, &hexout_tval_result);
+                        if ((hexout_tval_result.tv_sec * 1000 + hexout_tval_result.tv_usec / 1000) > option.timestamp_timeout)
                         {
                             now = timestamp_current_time();
                             if (now)
@@ -3447,7 +3587,7 @@ int tty_connect(void)
                                 do_timestamp = false;
                             }
                         }
-                        tval_before = tval_now;
+                        hexout_tval_before = hexout_tval_now;
                     }
                 }
 
