@@ -76,6 +76,7 @@ struct option_t
     bool log_strip;
     bool local_echo;
     timestamp_t timestamp;
+    timestamp_t log_timestamp;
     char *log_filename;
     char *log_directory;
     char *socket;

@@ -147,23 +147,32 @@ static int api_echo(lua_State *L)
 
     if (option.timestamp)
     {
-        char *pTimeStampNow = timestamp_current_time();
+        char *pTimeStampNow = timestamp_current_time(option.timestamp);
         if (pTimeStampNow)
         {
-            tio_printf("%s", str);
             if (option.log)
             {
-                log_printf("\n[%s] %s", pTimeStampNow, str);
+                if (option.log_timestamp) {
+                    log_printf("\n[%s] %s", pTimeStampNow, str);
+                }
+                else
+                {
+                    log_printf("%s", str);
+                }
             }
         }
     }
     else
     {
+        if (option.log && option.log_timestamp)
+        {
+            log_printf("\n[%s]", timestamp_current_time(option.log_timestamp));
+        }
         for (size_t i=0; i<len; i++)
         {
             putchar(str[i]);
 
-            if (option.log)
+            if (option.log && option.log_timestamp)
                 log_putc(str[i]);
         }
     }

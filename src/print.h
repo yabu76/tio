@@ -73,9 +73,9 @@ extern char ansi_format[];
         if (print_tainted) \
         putchar('\n'); \
         if (option.color < 0) \
-        fprintf (stdout, "\r[%s] Warning: " format "\r\n", timestamp_current_time(), ## args); \
+        fprintf (stdout, "\r[%s] Warning: " format "\r\n", timestamp_current_time(option.timestamp), ## args); \
         else \
-        ansi_printf("[%s] Warning: " format, timestamp_current_time(), ## args); \
+        ansi_printf("[%s] Warning: " format, timestamp_current_time(option.timestamp), ## args); \
         print_tainted = false; \
     } \
 }
@@ -90,13 +90,13 @@ extern char ansi_format[];
             if (error_normal) \
                 fprintf (stderr, "Error: " format "\n", ## args); \
             else \
-                fprintf (stderr, "\r[%s] Error: " format "\r\n", timestamp_current_time(), ## args); \
+                fprintf (stderr, "\r[%s] Error: " format "\r\n", timestamp_current_time(option.timestamp), ## args); \
         } \
         else { \
             if (error_normal) \
             { ansi_error_printf("Error: " format, ## args); }\
             else \
-            { ansi_error_printf("[%s] Error: " format, timestamp_current_time(), ## args); }\
+            { ansi_error_printf("[%s] Error: " format, timestamp_current_time(option.timestamp), ## args); }\
         } \
         print_tainted = false; \
     } \
@@ -108,7 +108,7 @@ extern char ansi_format[];
     { \
         if (print_tainted) \
         putchar('\n'); \
-        ansi_printf("[%s] " format, timestamp_current_time(), ## args); \
+        ansi_printf("[%s] " format, timestamp_current_time(option.timestamp), ## args); \
         print_tainted = false; \
     } \
 }
@@ -119,7 +119,7 @@ extern char ansi_format[];
     { \
         if (print_tainted) \
         putchar('\n'); \
-        ansi_printf_raw("[%s] " format, timestamp_current_time(), ## args); \
+        ansi_printf_raw("[%s] " format, timestamp_current_time(option.timestamp), ## args); \
         print_tainted = false; \
     } \
 }

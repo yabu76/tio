@@ -44,6 +44,7 @@ enum opt_t
     OPT_LOG_DIRECTORY,
     OPT_LOG_STRIP,
     OPT_LOG_APPEND,
+    OPT_LOG_TIMESTAMP,
     OPT_OUTPUT_LINE_DELAY_CHAR,
     OPT_LINE_PULSE_DURATION,
     OPT_RS485,
@@ -94,6 +95,7 @@ struct option_t option =
     .log_filename = NULL,
     .log_directory = NULL,
     .log_strip = false,
+    .log_timestamp = TIMESTAMP_NONE,
     .local_echo = false,
     .timestamp = TIMESTAMP_NONE,
     .socket = NULL,
@@ -179,6 +181,8 @@ void option_print_help(char *argv[])
     printf("      --log-directory <path>             Set log directory path for automatic named logs\n");
     printf("      --log-append                       Append to log file\n");
     printf("      --log-strip                        Strip control characters and escape sequences\n");
+    printf("  -T, --log-timestamp                    Enable line timestamps in log file\n");
+    printf("      --log-timestamp-format <format>    Set log file timestamp format (default: 24hour)\n");
     printf("  -m, --map <flags>                      Map characters\n");
     printf("      --keymap <keymaps>                 Set key-script mappings\n");
     printf("  -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)\n");
@@ -939,6 +943,7 @@ void options_print()
         }
         tio_printf(" Log append: %s", option.log_append ? "true" : "false");
         tio_printf(" Log strip: %s", option.log_strip ? "true" : "false");
+        tio_printf(" Log timestamp: %s", option_timestamp_format_to_string(option.log_timestamp));
     }
     if (option.socket)
     {
@@ -1014,6 +1019,8 @@ void options_parse(int argc, char *argv[])
             {"log-directory",        required_argument, 0, OPT_LOG_DIRECTORY       },
             {"log-append",           no_argument,       0, OPT_LOG_APPEND          },
             {"log-strip",            no_argument,       0, OPT_LOG_STRIP           },
+            {"log-timestamp",        no_argument,       0, 'T'                     },
+            {"log-timestamp-format", required_argument, 0, OPT_LOG_TIMESTAMP       },
             {"socket",               required_argument, 0, 'S'                     },
             {"map",                  required_argument, 0, 'm'                     },
             {"keymap",               required_argument, 0, OPT_KEYMAP              },
@@ -1132,8 +1139,19 @@ void options_parse(int argc, char *argv[])
                 }
                 break;
 
+            case 'T':
+                if (option.log_timestamp == TIMESTAMP_NONE)
+                {
+                    option.log_timestamp = TIMESTAMP_24HOUR;
+                }
+                break;
+
             case OPT_TIMESTAMP_FORMAT:
                 option_parse_timestamp(optarg, &option.timestamp);
+                break;
+
+            case OPT_LOG_TIMESTAMP:
+                option_parse_timestamp(optarg, &option.log_timestamp);
                 break;
 
             case OPT_TIMESTAMP_TIMEOUT:

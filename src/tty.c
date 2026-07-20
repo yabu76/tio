@@ -3346,7 +3346,7 @@ int tty_connect(void)
     /* Fire alert action */
     alert_connect();
 
-    if (option.timestamp)
+    if (option.timestamp || option.log_timestamp)
     {
         do_timestamp = true;
     }
@@ -3576,21 +3576,26 @@ int tty_connect(void)
                 // Manage timeout based timestamping in hex mode
                 if ((option.output_mode == OUTPUT_MODE_HEX) && (option.hex_n_value == 0))
                 {
-                    if (option.timestamp != TIMESTAMP_NONE)
+                    if (option.timestamp != TIMESTAMP_NONE || option.log_timestamp != TIMESTAMP_NONE)
                     {
                         gettimeofday(&hexout_tval_now, NULL);
                         timersub(&hexout_tval_now, &hexout_tval_before, &hexout_tval_result);
                         if ((hexout_tval_result.tv_sec * 1000 + hexout_tval_result.tv_usec / 1000) > option.timestamp_timeout)
                         {
-                            now = timestamp_current_time();
-                            if (now)
+                            now = timestamp_current_time(option.timestamp);
+                            if (now && option.timestamp)
                             {
                                 ansi_printf_raw("\r\n[%s] ", now);
-                                if (option.log)
+                                do_timestamp = false;
+                            }
+                            if (option.log)
+                            {
+                                now = timestamp_current_time(option.log_timestamp);
+                                if (now && option.log_timestamp)
                                 {
                                     log_printf("\r\n[%s] ", now);
+                                    do_timestamp = false;
                                 }
-                                do_timestamp = false;
                             }
                         }
                         hexout_tval_before = hexout_tval_now;
@@ -3611,15 +3616,20 @@ int tty_connect(void)
                             // Support timestamp per line
                             if ((do_timestamp && input_char != '\n' && input_char != '\r'))
                             {
-                                now = timestamp_current_time();
-                                if (now)
+                                now = timestamp_current_time(option.timestamp);
+                                if (now && option.timestamp)
                                 {
                                     ansi_printf_raw("[%s] ", now);
-                                    if (option.log)
+                                    do_timestamp = false;
+                                }
+                                if (option.log)
+                                {
+                                    now = timestamp_current_time(option.log_timestamp);
+                                    if (now && option.log_timestamp)
                                     {
                                         log_printf("[%s] ", now);
+                                        do_timestamp = false;
                                     }
-                                    do_timestamp = false;
                                 }
                             }
                             break;
@@ -3633,12 +3643,13 @@ int tty_connect(void)
                                 {
                                     if (option.timestamp != TIMESTAMP_NONE)
                                     {
-                                        now = timestamp_current_time();
+                                        now = timestamp_current_time(option.timestamp);
                                         if (first_)
                                         {
                                             ansi_printf_raw("[%s] ", now);
-                                            if (option.log)
+                                            if (option.log && option.log_timestamp)
                                             {
+                                                now = timestamp_current_time(option.log_timestamp);
                                                 log_printf("[%s] ", now);
                                             }
                                             first_ = false;
@@ -3697,7 +3708,7 @@ int tty_connect(void)
                     {
                         printchar('\r');
                         printchar('\n');
-                        if (option.timestamp)
+                        if (option.timestamp || option.log_timestamp)
                         {
                             do_timestamp = true;
                         }

@@ -29,7 +29,7 @@
 #include "options.h"
 #include "timestamp.h"
 
-char *timestamp_current_time(void)
+char *timestamp_current_time(timestamp_t topt)
 {
     static char time_string[TIME_STRING_SIZE_MAX];
     static struct timeval tv, tv_now, tv_start, tv_previous;
@@ -47,7 +47,7 @@ char *timestamp_current_time(void)
     }
 
     // Add formatted timestamp
-    switch (option.timestamp)
+    switch (topt)
     {
         case TIMESTAMP_NONE:
         case TIMESTAMP_24HOUR:
