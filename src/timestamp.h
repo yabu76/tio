@@ -30,6 +30,7 @@ typedef enum
     TIMESTAMP_ISO8601,
     TIMESTAMP_EPOCH,
     TIMESTAMP_EPOCH_USEC,
+    TIMESTAMP_INHERIT,
     TIMESTAMP_END,
 } timestamp_t;
 

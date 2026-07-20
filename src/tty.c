@@ -1768,6 +1768,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                     case TIMESTAMP_EPOCH_USEC:
                         tio_printf("Switched timestamp mode to epoch with subdivision in microseconds");
                         break;
+                    case TIMESTAMP_INHERIT:
                     case TIMESTAMP_END:
                         option.timestamp = TIMESTAMP_NONE;
                         tio_printf("Switched timestamp mode off");
@@ -3309,6 +3310,7 @@ int tty_connect(void)
     bool   do_timestamp = false;
     char*  now = NULL;
     struct timeval hexout_tval_before = {}, hexout_tval_now, hexout_tval_result;
+    timestamp_t opt_log_timestamp = get_concrete_log_timestamp();
 
     state = STATE_STARTING;
 
@@ -3346,7 +3348,7 @@ int tty_connect(void)
     /* Fire alert action */
     alert_connect();
 
-    if (option.timestamp || option.log_timestamp)
+    if (option.timestamp || opt_log_timestamp)
     {
         do_timestamp = true;
     }
@@ -3488,6 +3490,8 @@ int tty_connect(void)
         tv_tick.tv_sec = TIMER_TICK_MS / 1000;
         tv_tick.tv_usec = (TIMER_TICK_MS % 1000) * 1000;
 
+        opt_log_timestamp = get_concrete_log_timestamp();
+
         FD_ZERO(&rdfs);
         FD_SET(device_fd, &rdfs);
         FD_SET(pipefd[0], &rdfs);
@@ -3576,7 +3580,7 @@ int tty_connect(void)
                 // Manage timeout based timestamping in hex mode
                 if ((option.output_mode == OUTPUT_MODE_HEX) && (option.hex_n_value == 0))
                 {
-                    if (option.timestamp != TIMESTAMP_NONE || option.log_timestamp != TIMESTAMP_NONE)
+                    if (option.timestamp != TIMESTAMP_NONE || opt_log_timestamp != TIMESTAMP_NONE)
                     {
                         gettimeofday(&hexout_tval_now, NULL);
                         timersub(&hexout_tval_now, &hexout_tval_before, &hexout_tval_result);
@@ -3590,8 +3594,8 @@ int tty_connect(void)
                             }
                             if (option.log)
                             {
-                                now = timestamp_current_time(option.log_timestamp);
-                                if (now && option.log_timestamp)
+                                now = timestamp_current_time(opt_log_timestamp);
+                                if (now && opt_log_timestamp)
                                 {
                                     log_printf("\r\n[%s] ", now);
                                     do_timestamp = false;
@@ -3624,8 +3628,8 @@ int tty_connect(void)
                                 }
                                 if (option.log)
                                 {
-                                    now = timestamp_current_time(option.log_timestamp);
-                                    if (now && option.log_timestamp)
+                                    now = timestamp_current_time(opt_log_timestamp);
+                                    if (now && opt_log_timestamp)
                                     {
                                         log_printf("[%s] ", now);
                                         do_timestamp = false;
@@ -3647,9 +3651,9 @@ int tty_connect(void)
                                         if (first_)
                                         {
                                             ansi_printf_raw("[%s] ", now);
-                                            if (option.log && option.log_timestamp)
+                                            if (option.log && opt_log_timestamp)
                                             {
-                                                now = timestamp_current_time(option.log_timestamp);
+                                                now = timestamp_current_time(opt_log_timestamp);
                                                 log_printf("[%s] ", now);
                                             }
                                             first_ = false;
@@ -3708,7 +3712,7 @@ int tty_connect(void)
                     {
                         printchar('\r');
                         printchar('\n');
-                        if (option.timestamp || option.log_timestamp)
+                        if (option.timestamp || opt_log_timestamp)
                         {
                             do_timestamp = true;
                         }

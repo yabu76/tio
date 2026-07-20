@@ -145,35 +145,22 @@ static int api_echo(lua_State *L)
     size_t len = 0;
     const char *str = luaL_checklstring(L, 1, &len);
 
-    if (option.timestamp)
+    for (size_t i = 0; i < len; i++)
     {
-        char *pTimeStampNow = timestamp_current_time(option.timestamp);
-        if (pTimeStampNow)
-        {
-            if (option.log)
-            {
-                if (option.log_timestamp) {
-                    log_printf("\n[%s] %s", pTimeStampNow, str);
-                }
-                else
-                {
-                    log_printf("%s", str);
-                }
-            }
-        }
+        putchar(str[i]);
     }
-    else
-    {
-        if (option.log && option.log_timestamp)
-        {
-            log_printf("\n[%s]", timestamp_current_time(option.log_timestamp));
-        }
-        for (size_t i=0; i<len; i++)
-        {
-            putchar(str[i]);
 
-            if (option.log && option.log_timestamp)
-                log_putc(str[i]);
+    if (option.log)
+    {
+        timestamp_t opt_log_timestamp = get_concrete_log_timestamp();
+        if (opt_log_timestamp)
+        {
+            char *pTimeStampNow = timestamp_current_time(opt_log_timestamp);
+            log_printf("\n[%s] ", pTimeStampNow);
+        }
+        for (size_t i = 0; i < len; i++)
+        {
+            log_putc(str[i]);
         }
     }
 

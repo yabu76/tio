@@ -166,3 +166,6 @@ void option_parse_key_mappings(const char *keymap);
 const char* option_raw_to_string(raw_t raw);
 
 void keymaps_print(const char *title, int indent);
+
+timestamp_t get_concrete_log_timestamp(void);
+

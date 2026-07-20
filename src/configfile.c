@@ -243,7 +243,7 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
     {
         config_get_string(key_file, group, "log-timestamp-format", &string,
                           "24hour", "24hour-start", "24hour-delta", "iso8601",
-                          "epoch", "epoch-usec", NULL);
+                          "epoch", "epoch-usec", "inherit", NULL);
         if (string != NULL)
         {
             option_parse_timestamp(string, &option.log_timestamp);
