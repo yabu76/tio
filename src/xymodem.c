@@ -475,7 +475,7 @@ static int ymodem_send_1k(int sio, const void *data, size_t len, const char *fil
         err = ERR;
         if (strlen(filename) > 977) break; /* hdr block overrun */
         p  = stpncpy(hdr, filename, 1024) + 1;
-        p += sprintf(p, "%ld %lo %o", len, stat->st_mtime, stat->st_mode);
+        p += sprintf(p, "%zu %lo %o", len, stat->st_mtime, stat->st_mode);
 
         if (xmodem_send_1k(sio, hdr,  p - hdr, 0) < 0) break; /* hdr with metadata */
         if (xmodem_send_1k(sio, data, len,     1) < 0) break; /* xmodem file */
