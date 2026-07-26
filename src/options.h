@@ -54,6 +54,7 @@ typedef enum
 struct option_t
 {
     char *target;
+    char *config_filename;
     int baudrate;
     int databits;
     flow_t flow;

@@ -72,6 +72,7 @@ enum opt_t
 /* Default options */
 struct option_t option =
 {
+    .config_filename = NULL,
     .target = "",
     .baudrate = 115200,
     .databits = 8,
@@ -154,6 +155,7 @@ void option_print_help(char *argv[])
     printf("Connect to TTY device directly or via configuration profile or topology ID.\n");
     printf("\n");
     printf("Options:\n");
+    printf("  -C, --config-file <filename>           Use specified config file instead of standard config file\n");
     printf("  -b, --baudrate <bps>                   Baud rate (default: 115200)\n");
     printf("  -d, --databits 5|6|7|8                 Data bits (default: 8)\n");
     printf("  -f, --flow hard|soft|none              Flow control (default: none)\n");
@@ -1002,6 +1004,7 @@ void options_parse(int argc, char *argv[])
         // clang-format off
         static struct option long_options[] =
         {
+            {"config-file",          required_argument, 0, 'C'                     },
             {"baudrate",             required_argument, 0, 'b'                     },
             {"databits",             required_argument, 0, 'd'                     },
             {"flow",                 required_argument, 0, 'f'                     },
@@ -1058,7 +1061,7 @@ void options_parse(int argc, char *argv[])
         int option_index = 0;
 
         /* Parse argument using getopt_long */
-        c = getopt_long(argc, argv, "b:d:f:s:p:o:O:a:nNetTLlS:m:c:xrvh", long_options, &option_index);
+        c = getopt_long(argc, argv, "C:b:d:f:s:p:o:O:a:nNetTLlS:m:c:xrvh", long_options, &option_index);
 
         /* Detect the end of the options */
         if (c == -1)
@@ -1074,6 +1077,10 @@ void options_parse(int argc, char *argv[])
                 if (optarg)
                     printf(" with arg %s", optarg);
                 printf("\n");
+                break;
+
+            case 'C':
+                option.config_filename = optarg;
                 break;
 
             case 'b':

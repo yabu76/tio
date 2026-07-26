@@ -356,6 +356,19 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
 
 static int config_file_resolve(void)
 {
+    if (option.config_filename)
+    {
+        config.path = realpath(option.config_filename, NULL);
+        if (config.path)
+        {
+            if (access(config.path, F_OK) == 0)
+            {
+                return 0;
+            }
+            free(config.path);
+        }
+    }
+
     char *xdg = getenv("XDG_CONFIG_HOME");
     if (xdg)
     {
