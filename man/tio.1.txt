@@ -10,6 +10,10 @@ DESCRIPTION
        tio is a serial device tool which features a straightforward command-line and configuration file interface to easily connect to serial TTY devices for basic I/O operations.
 
 OPTIONS
+       -C, --config-file <filename>
+
+              Use specified config file instead of standard config file.
+
        -b, --baudrate <bps>
 
               Set baud rate [bps] (default: 115200).
@@ -697,6 +701,8 @@ SCRIPT API
 
 CONFIGURATION FILE
        Options can be set via configuration file using the INI format. tio uses the configuration file first found in the following locations in the order listed:
+
+       The file specified by the -C or --config-file option
 
        $XDG_CONFIG_HOME/tio/config
 

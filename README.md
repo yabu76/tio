@@ -111,6 +111,7 @@ Usage: tio [<options>] <tty-device|profile|tid>
 Connect to TTY device directly or via configuration profile or topology ID.
 
 Options:
+  -C, --config-file <filename>           Use specified config file instead of standard config file
   -b, --baudrate <bps>                   Baud rate (default: 115200)
   -d, --databits 5|6|7|8                 Data bits (default: 8)
   -f, --flow hard|soft|none              Flow control (default: none)
@@ -350,6 +351,7 @@ The history is maintained while tio is running.
 
 Options can be set via the configuration file first found in any of the
 following locations in the order listed:
+ - The file specified by the -C or --config-file option
  - $XDG_CONFIG_HOME/tio/config
  - $HOME/.config/tio/config
  - $HOME/.tioconfig
