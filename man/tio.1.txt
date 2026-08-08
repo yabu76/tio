@@ -142,6 +142,30 @@ OPTIONS
 
               Default value is 200.
 
+       -T, --log-timestamp
+
+              Enable line timestamps in log file. If the timestamp option is enabled, log timestamps are enabled even without this specification.
+
+           --log-timestamp-format <format>
+
+              Set log timestamp format to any of the following timestamp formats:
+
+              24hour          24-hour format ("hh:mm:ss.sss")
+
+              24hour-start    24-hour format relative to start time
+
+              24hour-delta    24-hour format relative to previous timestamp
+
+              iso8601         ISO8601 format ("YYYY-MM-DDThh:mm:ss.sss")
+
+              epoch           Seconds since Unix epoch (1970-01-01)
+
+              epoch-usec      Seconds since Unix epoch (1970-01-01) with subdivision in microseconds
+
+              inherit         The format specified by the timestamp-format option
+
+              Default format is inherit
+
        -l, --list
 
               List available targets (serial devices, TIDs, configuration profiles).
@@ -761,6 +785,10 @@ CONFIGURATION FILE
        timestamp-format         Set timestamp format
 
        timestamp-timeout        Set timestamp timeout
+
+       log-timestamp            Enable line timestamp in log file
+
+       log-timestamp-format     Set log file timestamp format
 
        map                      Map characters on input or output
 

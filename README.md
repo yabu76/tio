@@ -64,6 +64,7 @@ when used in combination with [tmux](https://tmux.github.io).
  * Timestamp support
    * Per line in normal output mode
    * Output timeout timestamps in hex output mode
+   * Independent timestamp specifications for screen output and log.
  * Support for delayed output
    * Per character
    * Per line
@@ -133,6 +134,8 @@ Options:
   -t, --timestamp                        Enable line timestamp
       --timestamp-format <format>        Set timestamp format (default: 24hour)
       --timestamp-timeout <ms>           Set timestamp timeout (default: 200)
+  -T, --log-timestamp                    Enable line timestamps in log file
+      --log-timestamp-format <format>    Set log file timestamp format (default: inherit)
   -l, --list                             List available serial devices, TIDs, and profiles
   -L, --log                              Enable log to file
       --log-file <filename>              Set log filename
