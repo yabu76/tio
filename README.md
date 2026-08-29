@@ -653,3 +653,18 @@ tio is GPLv2+. See LICENSE file for more details.
 Maintained by Martin Lund \<martin.lund@keep-it-simple.com>
 
 See the AUTHORS file for full list of contributors.
+
+
+## 10. About this fork
+
+<<This section will be moved to NEWS and AUTHORS when merged into the upstreaming repository.>>
+
+See the NEWS_THIS_FORK file for full list of additional features.
+
+The majority of the code added in this fork was contributed by Hideufumi Yabu (yabu76@gmail.com).
+However, the following commits also incorporate code from existing pull requests that was deemed useful.
+Thank you for great useful code. :-)
+
+c74273ecaa132cf3076d8469a3a401fbced6e097: PR #348 by Erling Sigurdson.
+
+See the AUTHORS_THIS_FORK file for full list of the authors.
