@@ -721,3 +721,15 @@ tio is GPLv2+. See LICENSE file for more details.
 Maintained by Martin Lund \<martin.lund@keep-it-simple.com>
 
 See the AUTHORS file for full list of contributors.
+
+
+## 10. About this fork
+
+<<This section will be moved to NEWS and AUTHORS when merged into the upstreaming repository.>>
+
+This fork aggregates code that yabu76 consider necessary -- drawn from pull requests and other forks --
+that has not yet been merged into the upstream repository.
+Thank you for great useful code. :-)
+
+See the NEWS_THIS_FORK file for full list of additional features.
+See the AUTHORS_THIS_FORK file for full list of the authors.
