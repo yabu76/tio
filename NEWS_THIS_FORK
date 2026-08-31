@@ -1,6 +1,6 @@
 Please refer to NEWS for the digest featuress of the upstream repository.
 
-Hidefumi Yabu:
+Hidefumi Yabu <yabu76@gmail.com>:
 
  * Add Lua API tio.twrite() that supports output-mapping, output-delay, and input-mode
  * Add option output-line-delay-char to specify the line-delay trigger character
@@ -23,7 +23,7 @@ Hidefumi Yabu:
  * Add bidirectional redirection to shell command execution (ctrl-t R and --exec option)
  * Add option --script-init-file to load and execute a file when tio starts
  * Add user key-script mapping (--keymap, ctrl-t k)
- * Add Lua functions that handle input from a thread that uses standard input. (2026/4/4)
+ * Add Lua functions that handle input from a thread that uses standard input.
     tio.inkey()
     tio.input()
     tio.inputline()
@@ -47,8 +47,35 @@ Hidefumi Yabu:
     tio.subcmd_puts(), tio.subcmd_warning_puts(), tio.subcmd_error_println()
  * Add feature to save/load the line-input-history to/from files on exit/startup.
    To suppress this feature, add option --no-line-history-save.
+ * Add Luajit support.
+ * Add Lua API tio.input_thread_pause(), input_thread_resume().
+ * Add Lua API tio.set_stdin_mode(), set_stdout_mode().
+ * Fix redundant tty configuration when stdin and stdout are connected to the same tty.
+ * Add Lua API tio.set_sleep_echo()
+ * Add Lua API tio.set_hook()
+ * Add Lua API tio.start_timer(), tio.stop_timer() for timeout hooking.
+ * Add inherit option to log-timestamp-format.
+ * Add option --config-file/-C that use specified config file.
 
-Erling Sigurdson:
+Erling Sigurdson <efimov-d-v@yandex.ru>:
 
  * Add option --no-tty-restore / -N that omits tty_restore() call - #348
+     (c74273ecaa132cf3076d8469a3a401fbced6e097)
 
+William Toth <wtoth1631@gmail.com>:
+ * Add RX filter - https://github.com/willtoth/tio/tree/lua-stream
+     (a3c90f0c2a868ee71eccfdecb332ba0f571481f7)
+
+Aseem Chopra <aseemchopra25>:
+ * Fix unix socket handling (stale detection, socket options) - #372
+     (e2e57439eb3f4b7b84b8ac44934152666e4018d0)
+ * Fix data loss when flushing buffered tty output - #371
+     (9b871c91b9fac6bb06fc6f76cef1b3c92093ef6d)
+
+Antti P Miettinen <anttipmiettinen>
+ * Separate timestamping for log - https://https://github.com/tio/tio/commit/8a2dce912fdb50733dce0768023c3e4dfc456d09
+   (fd6bed31521dda21b18221f7c795345d5e5059c2)
+
+Andi Powers-Holmes <aholmes@omnom.net>
+ * Minor fix for printf format string in src/xymodem.c - #353
+   (9d0edde6f6b0db81835dd5a91c7e457f4732c92a)

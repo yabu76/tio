@@ -727,12 +727,9 @@ See the AUTHORS file for full list of contributors.
 
 <<This section will be moved to NEWS and AUTHORS when merged into the upstreaming repository.>>
 
-See the NEWS_THIS_FORK file for full list of additional features.
-
-The majority of the code added in this fork was contributed by Hideufumi Yabu (yabu76@gmail.com).
-However, the following commits also incorporate code from existing pull requests that was deemed useful.
+This fork aggregates code that yabu76 consider necessary -- drawn from pull requests and other forks --
+that has not yet been merged into the upstream repository.
 Thank you for great useful code. :-)
 
-c74273ecaa132cf3076d8469a3a401fbced6e097: PR #348 by Erling Sigurdson.
-
+See the NEWS_THIS_FORK file for full list of additional features.
 See the AUTHORS_THIS_FORK file for full list of the authors.
