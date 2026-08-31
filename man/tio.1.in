@@ -17,6 +17,10 @@ basic I/O operations.
 .SH "OPTIONS"
 
 .TP
+.BR \-C ", " "\-\-config-file " \fI<filename>
+
+Use specified config file instead of standard config file.
+.TP
 .BR \-b ", " "\-\-baudrate " \fI<bps>
 
 Set baud rate [bps] (default: 115200).
@@ -178,6 +182,37 @@ This value only takes effect in hex output mode where timestamps are only
 printed after elapsed timeout time of no output activity from tty device.
 
 Default value is 200.
+
+.TP
+.BR \-t ", " \-\-log\-timestamp
+
+Enable line timestamp.
+If the timestamp option is enabled, log timestamps are enabled even without this specification.
+
+.TP
+.BR "    \-\-log\-timestamp\-format \fI<format>"
+
+Set log timestamp format to any of the following timestamp formats:
+.RS
+.TP 16n
+
+.IP "\fB24hour"
+24-hour format ("hh:mm:ss.sss")
+.IP "\fB24hour-start"
+24-hour format relative to start time
+.IP "\fB24hour-delta"
+24-hour format relative to previous timestamp
+.IP "\fBiso8601"
+ISO8601 format ("YYYY-MM-DDThh:mm:ss.sss")
+.IP "\fBepoch"
+Seconds since Unix epoch (1970-01-01)
+.IP "\fBepoch-usec"
+Seconds since Unix epoch (1970-01-01) with subdivision in microseconds
+.IP "\fBinherit"
+The format specified by the timestamp-format option
+.PP
+Default format is \fBinherit\fR
+.RE
 
 .TP
 .BR \-l ", " \-\-list
@@ -556,6 +591,29 @@ Write string to serial device with input-editing, output-mapping and output-dela
 
 Returns tio table on success or nil on error.
 
+.IP "\fBtio.rx_filter(callback_or_nil)"
+Register a receive filter callback for bytes read from the serial device. The
+callback receives each RX chunk as a Lua string before tio applies normal RX
+processing.
+
+If the callback returns a string, tio processes that string as if it had been
+read from the serial device, including timestamping, input mappings, display,
+logging, and socket forwarding. If it returns nil, tio drops the chunk. Lua
+strings are byte strings, so filters may return embedded NUL bytes and arbitrary
+binary data.
+
+Only the serial RX path is filtered; keyboard, stdin, socket-client input, and
+tio.write output to the serial device are unchanged.
+
+The Lua state remains alive while a filter is registered, so callback closure
+state persists across RX chunks. Scripts run while a filter is active share that
+same Lua state. Call tio.rx_filter(nil) to disable the filter.
+
+If the callback raises an error or returns a value other than a Lua string or
+nil, tio reports a warning, disables the filter, and passes the current chunk
+through unchanged. Other Lua types, including numbers, are not accepted as
+strings.
+
 .IP "\fBtio.send(file, protocol)"
 Send file using x/y-modem protocol.
 
@@ -742,6 +800,41 @@ Print a warning string using sub-command style output.
 .IP "\fBtio.subcmd_error_puts(string)"
 Print an error string using sub-command style output.
 
+.IP "\fBtio.input_thread_pause()"
+Pause tio's input thread capturing standard input.
+
+.IP "\fBtio.input_thread_resume()"
+Resume tio's input thread capturing standard input.
+
+.IP "\fBtio.set_stdin_mode(mode)"
+Change stdin mode (tty setting).
+
+Mode can be "os" or "tio".
+
+"os" represents the state of the device before tio starts.
+
+"tio" represents the state of the device after tio starts.
+
+If stdout is connected to the same tty, the settings of it will also be changed.
+
+.IP "\fBtio.set_stdout_mode(mode)"
+Change stdout mode (tty setting).
+
+Mode can be "os" or "tio".
+
+"os" represents the state of the device before tio starts.
+
+"tio" represents the state of the device after tio starts.
+
+If stdin is connected to the same tty, the settings of it will also be changed.
+
+.IP "\fBtio.set_sleep_echo(bool)"
+Switch the timestamp output when tio.sleep() or tio.msleep() is executed.
+
+If true, timestamp output is enabled.
+
+If false, timestamp output is disabled.
+
 .IP "\fBtio.alwaysecho"
 A boolean value, defaults to true.
 
@@ -761,6 +854,8 @@ Options can be set via configuration file using the INI format. \fBtio\fR uses
 the configuration file first found in the following locations in the order
 listed:
 
+.PP
+.I The file specified by the -C or --config-file option
 .PP
 .I $XDG_CONFIG_HOME/tio/config
 .PP
@@ -828,6 +923,10 @@ Enable line timestamp
 Set timestamp format
 .IP "\fBtimestamp-timeout"
 Set timestamp timeout
+.IP "\fBlog-timestamp"
+Enable line timestamp in log file
+.IP "\fBlog-timestamp-format"
+Set log file timestamp format
 .IP "\fBmap"
 Map characters on input or output
 .IP "\fBkeymap"

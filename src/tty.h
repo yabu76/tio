@@ -80,11 +80,16 @@ typedef enum
 
 extern const char *device_name;
 extern bool interactive_mode;
+extern bool stdin_and_stdout_connected_to_same_tty;
 extern state_t state;
 extern unsigned long rx_total, tx_total;
 
 void stdout_configure(void);
+void stdout_reconfigure(void);
+void stdout_restore(void);
 void stdin_configure(void);
+void stdin_reconfigure(void);
+void stdin_restore(void);
 void tty_configure(void);
 void tty_reconfigure(void);
 void tty_init(void);
@@ -94,6 +99,8 @@ void tty_wait_for_device(void);
 void list_serial_devices(void);
 void tty_input_thread_create(void);
 void tty_input_thread_wait_ready(void);
+void tty_input_thread_pause(void);
+void tty_input_thread_resume(void);
 void tty_line_set(int fd, tty_line_config_t line_config[]);
 void tty_search(void);
 GList *tty_search_for_serial_devices(void);
@@ -104,3 +111,5 @@ int tty_tcsetattr(int fd);
 int tty_inkey(int mseconds);
 int tty_simple_readln(const char *prompt);
 int tty_subcmd_readln(const char *title_prompt);
+void timer_start(int expire_ms, bool auto_repeated);
+void timer_stop(void);

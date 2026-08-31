@@ -51,7 +51,8 @@ void error_printf_(const char *format, ...)
         {
             putchar('\n');
         }
-        ansi_error_printf("[%s] %s", timestamp_current_time(), line);
+        ansi_error_printf("[%s] %s", timestamp_current_time(option.timestamp),
+                          line);
     }
     else
     {

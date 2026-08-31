@@ -153,6 +153,12 @@ typedef enum
 #define MLINE_MAX 4096
 #define INKEY_CHARS_MAX 16
 
+#define TIMER_TICK_MS 100
+bool timer_valid = false;
+bool timer_auto_repeated = false;
+struct timeval timer_start_time = {};
+int timer_expire_diff_ms = 0;
+
 // clang-format off
 const char random_array[] =
 {
@@ -171,12 +177,14 @@ const char random_array[] =
 
 bool interactive_mode = true;
 state_t state = STATE_STARTING;
-
+bool stdin_and_stdout_connected_to_same_tty = true;
 char key_hit = 0xff;
 
 const char* device_name = NULL;
 GList *device_list = NULL;
 static struct termios tio, tio_raw, tio_old, stdout_new, stdout_old, stdin_new, stdin_old;
+static bool stdin_configured = false;
+static bool stdout_configured = false;
 unsigned long rx_total = 0, tx_total = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
@@ -191,6 +199,8 @@ static char *tty_buffer_write_ptr = tty_buffer;
 static pthread_t thread;
 static int pipefd[2];
 static pthread_mutex_t mutex_input_ready = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex_input_pause = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex_stdin = PTHREAD_MUTEX_INITIALIZER;
 char line[PATH_MAX], mline[MLINE_MAX];
 char inkey_chars[INKEY_CHARS_MAX];
 static size_t listing_device_name_length_max = 0;
@@ -205,17 +215,42 @@ static void optional_local_echo(char c)
         return;
     }
 
-    printchar(c);
-
-    if ((option.output_mode == OUTPUT_MODE_NORMAL) && (c == 127))
+    // script hook on local send
+    const char *lotx_buffer = &c;
+    size_t lotx_buffer_length = sizeof(c);
+    script_hook_id_t hook_id = SCRIPT_HOOK_ID_LOCAL_SEND;
+    if (script_hook_enabled(hook_id))
     {
-        // Force destructive backspace
-        printf("\b \b");
+        script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                              &c,
+                                                              sizeof(c),
+                                                              &lotx_buffer,
+                                                              &lotx_buffer_length);
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+        }
+    }
+    if (lotx_buffer_length == 0)
+    {
+        return;
     }
 
-    if (option.log)
+    for (size_t i = 0; i < lotx_buffer_length; i++)
     {
-        log_putc(c);
+        c = lotx_buffer[i];
+        printchar(c);
+
+        if ((option.output_mode == OUTPUT_MODE_NORMAL) && (c == 127))
+        {
+            // Force destructive backspace
+            printf("\b \b");
+        }
+
+        if (option.log)
+        {
+            log_putc(c);
+        }
     }
 }
 
@@ -456,13 +491,40 @@ static ssize_t tty_raw_write(int fd)
 ssize_t tty_write(int fd, const void *buffer, size_t count)
 {
     int status;
-    const char *cp = (char *)buffer;
     size_t i;
+
+    /* script hook on io send */
+    const char *tx_buffer = buffer;
+    size_t tx_buffer_length = count;
+    script_hook_id_t hook_id = SCRIPT_HOOK_ID_IO_SEND;
+
+    if (script_hook_enabled(hook_id))
+    {
+        script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                              buffer,
+                                                              count,
+                                                              &tx_buffer,
+                                                              &tx_buffer_length);
+
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+            tx_buffer_length = 0;
+            return tx_buffer_length;
+        }
+        if (tx_buffer_length == 0)
+        {
+            return tx_buffer_length;
+        }
+    }
+
+    const char *cp = (char *)tx_buffer;
+
     raw_t raw = tty_get_raw_mode();
     if (raw != RAW_OFF)
     {
         /* RAW mode */
-        for (i = 0; i < count; i++, cp++)
+        for (i = 0; i < tx_buffer_length; i++, cp++)
         {
             if (tty_buffer_count >= BUFSIZ)
             {
@@ -482,7 +544,7 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
     else
     {
         /* not RAW mode */
-        for (i = 0; i < count; i++, cp++)
+        for (i = 0; i < tx_buffer_length; i++, cp++)
         {
             if (tty_buffer_count >= BUFSIZ)
             {
@@ -539,15 +601,18 @@ ssize_t tty_write(int fd, const void *buffer, size_t count)
     {
         return status;
     }
-    return count;
+    return tx_buffer_length;
 }
 
 void *tty_stdin_input_thread(void *arg)
 {
     UNUSED(arg);
     char input_buffer[BUFSIZ];
+    int status;
     ssize_t byte_count;
     ssize_t bytes_written;
+    struct timeval tv = {0};
+    fd_set fds;
 
     // Create FIFO pipe
     if (pipe(pipefd) == -1)
@@ -560,15 +625,46 @@ void *tty_stdin_input_thread(void *arg)
     pthread_mutex_unlock(&mutex_input_ready);
 
     // Input loop for stdin
+    bool lock_prewait_on = false;
     while (true)
     {
         /* Input from stdin ready */
-        byte_count = read(STDIN_FILENO, input_buffer, BUFSIZ);
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        tv.tv_sec = 0;
+        tv.tv_usec = 300 * 1000;
+
+        if (lock_prewait_on)
+        {
+            usleep(100*1000);
+        }
+        pthread_mutex_lock(&mutex_stdin);
+        status = select(1, &fds, NULL, NULL, &tv);
+        if (status > 0)
+        {
+            byte_count = read(STDIN_FILENO, input_buffer, BUFSIZ);
+            lock_prewait_on = false;
+        }
+        pthread_mutex_unlock(&mutex_stdin);
+
+        if (status == 0)
+        {
+            lock_prewait_on = true;
+            continue;
+        }
+        else if (status < 0)
+        {
+            tio_error_printf("Could not select for stdin (%s)", strerror(errno));
+            lock_prewait_on = true;
+            continue;
+        }
+
         if (byte_count < 0)
         {
             /* No error actually occurred */
             if (errno == EINTR)
             {
+                lock_prewait_on = true;
                 continue;
             }
             tio_warning_printf("Could not read from stdin (%s)", strerror(errno));
@@ -636,14 +732,20 @@ void *tty_stdin_input_thread(void *arg)
         }
 
         // Write all bytes read to pipe
+        char *write_ptr = input_buffer;
         while (byte_count > 0)
         {
-            bytes_written = write(pipefd[1], input_buffer, byte_count);
+            bytes_written = write(pipefd[1], write_ptr, byte_count);
             if (bytes_written < 0)
             {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
                 tio_warning_printf("Could not write to pipe (%s)", strerror(errno));
                 break;
             }
+            write_ptr += bytes_written;
             byte_count -= bytes_written;
         }
     }
@@ -665,6 +767,21 @@ void tty_input_thread_create(void)
 void tty_input_thread_wait_ready(void)
 {
     pthread_mutex_lock(&mutex_input_ready);
+}
+
+void tty_input_thread_pause(void)
+{
+    if (pthread_mutex_trylock(&mutex_input_pause) != 0)
+    {
+        return;
+    }
+    pthread_mutex_lock(&mutex_stdin);
+}
+
+void tty_input_thread_resume(void)
+{
+    pthread_mutex_unlock(&mutex_input_pause);
+    pthread_mutex_unlock(&mutex_stdin);
 }
 
 static void handle_hex_prompt(char c)
@@ -822,6 +939,103 @@ static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int d
             break;
     }
 }
+
+static bool tty_line_changed(int fd, int *lstat_now, int *lstat_before)
+{
+    static bool line_state_valid = false;
+    static int line_state;
+    const int LINE_STATE_INPUT_MASK = (TIOCM_CTS | TIOCM_DSR | TIOCM_CD | TIOCM_RI);
+    int lstat;
+
+    if (line_state_valid)
+    {
+        *lstat_before = line_state;
+    }
+    else
+    {
+        *lstat_before = -1;
+    }
+    if (ioctl(fd, TIOCMGET, &lstat) < 0)
+    {
+        *lstat_now = *lstat_before;
+        return false;
+    }
+
+    line_state = lstat;
+    line_state_valid = true;
+
+    *lstat_now = lstat;
+
+    return (*lstat_now & LINE_STATE_INPUT_MASK) != (*lstat_before & LINE_STATE_INPUT_MASK);
+}
+
+void timer_start(int expire_ms, bool auto_repeated)
+{
+    gettimeofday(&timer_start_time, NULL);
+    timer_auto_repeated = auto_repeated;
+    timer_expire_diff_ms = expire_ms;
+    timer_valid = true;
+}
+
+void timer_stop(void)
+{
+    timer_valid = false;
+}
+
+void handle_timer_tick(bool ticked)
+{
+    // this funcion should be called with script_hook_enabled(SCRIPT_HOOK_ID_TIMER_EXPIRE) true.
+    static struct timeval tval_before = {}, tval_now;
+    static bool tval_valid = false;
+    struct timeval tval_elapsed;
+
+    if (tval_valid == false)
+    {
+        gettimeofday(&tval_before, NULL);
+        tval_valid = true;
+        return;
+    }
+    gettimeofday(&tval_now, NULL);
+
+    if ( ! ticked )
+    {
+        timersub(&tval_now, &tval_before, &tval_elapsed);
+        ticked = ((tval_elapsed.tv_sec * 1000 + tval_elapsed.tv_usec / 1000) >= TIMER_TICK_MS);
+    }
+
+    if ( ticked )
+    {
+        // script hook on timer expire
+        if (timer_valid)
+        {
+            struct timeval timer_elapsed_diff;
+            timersub(&tval_now, &timer_start_time, &timer_elapsed_diff);
+
+            int timer_elapsed_diff_ms = timer_elapsed_diff.tv_sec * 1000 + timer_elapsed_diff.tv_usec / 1000;
+            if (timer_elapsed_diff_ms >= timer_expire_diff_ms)
+            {
+                if (timer_auto_repeated)
+                {
+                    timer_start_time = tval_now;
+                    timer_valid = true;
+                }
+                else
+                {
+                    timer_valid = false;
+                }
+
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_TIMER_EXPIRE;
+                script_hook_result_t hook_result = script_hook_timer_expire(hook_id, timer_elapsed_diff_ms);
+                if (hook_result == SCRIPT_HOOK_DROP)
+                {
+                    tio_error_printf("Dropped hook due to fatal error");
+                }
+            }
+        }
+        tval_before = tval_now;
+    }
+}
+
 
 int tty_inkey(int mseconds)
 {
@@ -1554,6 +1768,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                     case TIMESTAMP_EPOCH_USEC:
                         tio_printf("Switched timestamp mode to epoch with subdivision in microseconds");
                         break;
+                    case TIMESTAMP_INHERIT:
                     case TIMESTAMP_END:
                         option.timestamp = TIMESTAMP_NONE;
                         tio_printf("Switched timestamp mode off");
@@ -1611,7 +1826,21 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
 
 void stdin_restore(void)
 {
+    if ( ! stdin_configured )
+    {
+        return;
+    }
     tcsetattr(STDIN_FILENO, TCSANOW, &stdin_old);
+}
+
+void stdin_reconfigure(void)
+{
+    if ( ! stdin_configured )
+    {
+        return;
+    }
+    /* Activate new stdin settings */
+    tcsetattr(STDIN_FILENO, TCSANOW, &stdin_new);
 }
 
 void stdin_configure(void)
@@ -1645,10 +1874,17 @@ void stdin_configure(void)
 
     /* Make sure we restore old stdin settings on exit */
     atexit(&stdin_restore);
+
+    stdin_configured = true;
 }
 
 void stdout_restore(void)
 {
+    if ( ! stdout_configured )
+    {
+        return;
+    }
+
     tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_old);
 
     // If terminal is vt100
@@ -1660,46 +1896,69 @@ void stdout_restore(void)
     }
 }
 
+void stdout_reconfigure(void)
+{
+    if ( ! stdout_configured )
+    {
+        return;
+    }
+    tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_new);
+}
+
 void stdout_configure(void)
 {
     int status;
 
-    /* Save current stdout settings */
-    if (tcgetattr(STDOUT_FILENO, &stdout_old) < 0)
+    if (stdin_and_stdout_connected_to_same_tty && stdin_configured)
     {
-        tio_error_printf("Saving current stdio settings failed");
-        exit(EXIT_FAILURE);
+        /* To simplify the process, if stdin_configure() is needed to be called,
+           it must be done before calling this function. */
+        /* Since the intended settings for stdout's tty are the same as those for stdin's tty,
+           no further configuration is required. */
+        memcpy(&stdout_old, &stdin_old, sizeof(stdin_old));
+        memcpy(&stdout_new, &stdin_new, sizeof(stdin_new));
     }
-
-    /* Prepare new stdout settings */
-    memcpy(&stdout_new, &stdout_old, sizeof(stdout_old));
-
-    /* Reconfigure stdout (RAW configuration) */
-    cfmakeraw(&stdout_new);
-
-    /* Allow ^C / SIGINT (to allow termination when piping to tio) */
-    if (!interactive_mode)
+    else
     {
-        stdout_new.c_lflag |= ISIG;
-    }
+        /* Save current stdout settings */
+        if (tcgetattr(STDOUT_FILENO, &stdout_old) < 0)
+        {
+            tio_error_printf("Saving current stdio settings failed");
+            exit(EXIT_FAILURE);
+        }
 
-    /* Control characters */
-    stdout_new.c_cc[VTIME] = 0; /* Inter-character timer unused */
-    stdout_new.c_cc[VMIN]  = 1; /* Blocking read until 1 character received */
+        /* Prepare new stdout settings */
+        memcpy(&stdout_new, &stdout_old, sizeof(stdout_old));
 
-    /* Activate new stdout settings */
-    status = tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_new);
-    if (status == -1)
-    {
-        tio_error_printf("Could not apply new stdout settings (%s)", strerror(errno));
-        exit(EXIT_FAILURE);
+        /* Reconfigure stdout (RAW configuration) */
+        cfmakeraw(&stdout_new);
+
+        /* Allow ^C / SIGINT (to allow termination when piping to tio) */
+        if (!interactive_mode)
+        {
+            stdout_new.c_lflag |= ISIG;
+        }
+
+        /* Control characters */
+        stdout_new.c_cc[VTIME] = 0; /* Inter-character timer unused */
+        stdout_new.c_cc[VMIN]  = 1; /* Blocking read until 1 character received */
+
+        /* Activate new stdout settings */
+        status = tcsetattr(STDOUT_FILENO, TCSANOW, &stdout_new);
+        if (status == -1)
+        {
+            tio_error_printf("Could not apply new stdout settings (%s)", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+
+        /* Make sure we restore old stdout settings on exit */
+        atexit(&stdout_restore);
     }
 
     /* At start use normal print function */
     printchar = print_normal;
 
-    /* Make sure we restore old stdout settings on exit */
-    atexit(&stdout_restore);
+    stdout_configured = true;
 }
 
 void tty_configure(void)
@@ -2819,7 +3078,11 @@ void tty_wait_for_device(void)
                     /* Handle commands */
                     handle_command_sequence(input_char, NULL, NULL);
                 }
-                socket_handle_input(&rdfs, NULL);
+                const char *output_buffer = NULL;
+                size_t output_buffer_length = 0;
+                socket_handle_input(&rdfs, &output_buffer, &output_buffer_length);
+                UNUSED(output_buffer);
+                UNUSED(output_buffer_length);
             }
             else if (status == -1)
             {
@@ -3046,7 +3309,8 @@ int tty_connect(void)
     int    status;
     bool   do_timestamp = false;
     char*  now = NULL;
-    struct timeval tval_before = {}, tval_now, tval_result;
+    struct timeval hexout_tval_before = {}, hexout_tval_now, hexout_tval_result;
+    timestamp_t opt_log_timestamp = get_concrete_log_timestamp();
 
     state = STATE_STARTING;
 
@@ -3084,7 +3348,7 @@ int tty_connect(void)
     /* Fire alert action */
     alert_connect();
 
-    if (option.timestamp)
+    if (option.timestamp || opt_log_timestamp)
     {
         do_timestamp = true;
     }
@@ -3132,6 +3396,9 @@ int tty_connect(void)
         goto error_tcsetattr;
     }
 
+    /* Manage script activation */
+    script_device_bind(device_fd);
+
     /* If stdin is a pipe forward all input to tty device */
     if (interactive_mode == false)
     {
@@ -3146,8 +3413,30 @@ int tty_connect(void)
             }
             else if (ret > 0)
             {
+                // script hook on local receive
+                const char *lorx_buffer = input_buffer;
+                size_t lorx_buffer_length = ret;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_LOCAL_RECEIVE;
+                if (script_hook_enabled(hook_id))
+                {
+                    script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                                          lorx_buffer,
+                                                                          lorx_buffer_length,
+                                                                          &lorx_buffer,
+                                                                          &lorx_buffer_length);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                        continue;
+                    }
+                }
+                if (lorx_buffer_length == 0)
+                {
+                    continue;
+                }
+
                 // Forward to tty device
-                ret = tty_write(device_fd, input_buffer, ret);
+                ret = tty_write(device_fd, lorx_buffer, lorx_buffer_length);
                 if (ret < 0)
                 {
                     tio_error_printf("Could not write to serial device (%s)", strerror(errno));
@@ -3162,9 +3451,6 @@ int tty_connect(void)
         }
         tty_sync(device_fd);
     }
-
-    /* Manage script activation */
-    script_device_bind(device_fd);
 
     if (option.script_run != SCRIPT_RUN_NEVER)
     {
@@ -3200,6 +3486,12 @@ int tty_connect(void)
     /* Input loop */
     while (true)
     {
+        struct timeval tv_tick;
+        tv_tick.tv_sec = TIMER_TICK_MS / 1000;
+        tv_tick.tv_usec = (TIMER_TICK_MS % 1000) * 1000;
+
+        opt_log_timestamp = get_concrete_log_timestamp();
+
         FD_ZERO(&rdfs);
         FD_SET(device_fd, &rdfs);
         FD_SET(pipefd[0], &rdfs);
@@ -3208,7 +3500,40 @@ int tty_connect(void)
         maxfd = MAX(maxfd, socket_add_fds(&rdfs, true));
 
         /* Block until input becomes available */
-        status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
+        //        status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
+        status = select(maxfd + 1, &rdfs, NULL, NULL, &tv_tick);
+
+        /* check line signal and loop timer */
+        if (status >= 0)
+        {
+            // script hook on signal change
+            script_hook_id_t hook_id = SCRIPT_HOOK_ID_SIGNAL_CHANGE;
+            if (script_hook_enabled(hook_id))
+            {
+                int lstat_now, lstat_before;
+                if (tty_line_changed(device_fd, &lstat_now, &lstat_before))
+                {
+                    script_hook_result_t hook_result = script_hook_signal_change(hook_id, lstat_now, lstat_before);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                    }
+                }
+            }
+
+            // script hook on timer expired
+            if (script_hook_enabled(SCRIPT_HOOK_ID_TIMER_EXPIRE))
+            {
+                handle_timer_tick(status == 0);
+            }
+
+            // if timeout event only, reloop
+            if (status == 0)
+            {
+                continue;
+            }
+        }
+
         if (status > 0)
         {
             bool forward = false;
@@ -3229,36 +3554,64 @@ int tty_connect(void)
                 /* Update receive statistics */
                 rx_total += bytes_read;
 
+                /* script hook on io receive */
+                const char *rx_buffer = input_buffer;
+                size_t rx_buffer_length = bytes_read;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_IO_RECEIVE;
+
+                if (script_hook_enabled(hook_id))
+                {
+                    script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                                          input_buffer,
+                                                                          bytes_read,
+                                                                          &rx_buffer,
+                                                                          &rx_buffer_length);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                        continue;
+                    }
+                }
+                if (rx_buffer_length == 0)
+                {
+                    continue;
+                }
+
                 // Manage timeout based timestamping in hex mode
                 if ((option.output_mode == OUTPUT_MODE_HEX) && (option.hex_n_value == 0))
                 {
-                    if (option.timestamp != TIMESTAMP_NONE)
+                    if (option.timestamp != TIMESTAMP_NONE || opt_log_timestamp != TIMESTAMP_NONE)
                     {
-                        gettimeofday(&tval_now, NULL);
-                        timersub(&tval_now, &tval_before, &tval_result);
-                        if ((tval_result.tv_sec * 1000 + tval_result.tv_usec / 1000) > option.timestamp_timeout)
+                        gettimeofday(&hexout_tval_now, NULL);
+                        timersub(&hexout_tval_now, &hexout_tval_before, &hexout_tval_result);
+                        if ((hexout_tval_result.tv_sec * 1000 + hexout_tval_result.tv_usec / 1000) > option.timestamp_timeout)
                         {
-                            now = timestamp_current_time();
-                            if (now)
+                            now = timestamp_current_time(option.timestamp);
+                            if (now && option.timestamp)
                             {
                                 ansi_printf_raw("\r\n[%s] ", now);
-                                if (option.log)
-                                {
-                                    log_printf("\r\n[%s] ", now);
-                                }
                                 do_timestamp = false;
                             }
+                            if (option.log)
+                            {
+                                now = timestamp_current_time(opt_log_timestamp);
+                                if (now && opt_log_timestamp)
+                                {
+                                    log_printf("\r\n[%s] ", now);
+                                    do_timestamp = false;
+                                }
+                            }
                         }
-                        tval_before = tval_now;
+                        hexout_tval_before = hexout_tval_now;
                     }
                 }
 
                 /* Process input byte by byte */
-                for (int i=0; i<bytes_read; i++)
+                for (size_t i=0; i<rx_buffer_length; i++)
                 {
                     static unsigned long count = 0;
 
-                    input_char = input_buffer[i];
+                    input_char = rx_buffer[i];
 
                     /* Handle timestamps */
                     switch (option.output_mode)
@@ -3267,15 +3620,20 @@ int tty_connect(void)
                             // Support timestamp per line
                             if ((do_timestamp && input_char != '\n' && input_char != '\r'))
                             {
-                                now = timestamp_current_time();
-                                if (now)
+                                now = timestamp_current_time(option.timestamp);
+                                if (now && option.timestamp)
                                 {
                                     ansi_printf_raw("[%s] ", now);
-                                    if (option.log)
+                                    do_timestamp = false;
+                                }
+                                if (option.log)
+                                {
+                                    now = timestamp_current_time(opt_log_timestamp);
+                                    if (now && opt_log_timestamp)
                                     {
                                         log_printf("[%s] ", now);
+                                        do_timestamp = false;
                                     }
-                                    do_timestamp = false;
                                 }
                             }
                             break;
@@ -3289,12 +3647,13 @@ int tty_connect(void)
                                 {
                                     if (option.timestamp != TIMESTAMP_NONE)
                                     {
-                                        now = timestamp_current_time();
+                                        now = timestamp_current_time(option.timestamp);
                                         if (first_)
                                         {
                                             ansi_printf_raw("[%s] ", now);
-                                            if (option.log)
+                                            if (option.log && opt_log_timestamp)
                                             {
+                                                now = timestamp_current_time(opt_log_timestamp);
                                                 log_printf("[%s] ", now);
                                             }
                                             first_ = false;
@@ -3353,7 +3712,7 @@ int tty_connect(void)
                     {
                         printchar('\r');
                         printchar('\n');
-                        if (option.timestamp)
+                        if (option.timestamp || opt_log_timestamp)
                         {
                             do_timestamp = true;
                         }
@@ -3374,8 +3733,27 @@ int tty_connect(void)
                     }
                     else
                     {
-                        /* Print received tty character to stdout */
-                        printchar(input_char);
+                        // script hook on local send
+                        const char *lotx_buffer = &input_char;
+                        size_t lotx_buffer_length = sizeof(input_char);
+                        script_hook_id_t lotx_hook_id = SCRIPT_HOOK_ID_LOCAL_SEND;
+                        if (script_hook_enabled(lotx_hook_id))
+                        {
+                            script_hook_result_t hook_result = script_hook_filter(lotx_hook_id,
+                                                                                  &input_char,
+                                                                                  sizeof(input_char),
+                                                                                  &lotx_buffer,
+                                                                                  &lotx_buffer_length);
+                            if (hook_result == SCRIPT_HOOK_DROP)
+                            {
+                                tio_error_printf("Dropped hook due to fatal error");
+                            }
+                        }
+                        for (size_t j = 0; j < lotx_buffer_length; j++)
+                        {
+                            /* Print received tty character to stdout */
+                            printchar(lotx_buffer[j]);
+                        }
                     }
 
                     /* Write to log */
@@ -3413,10 +3791,28 @@ int tty_connect(void)
                     exit(EXIT_SUCCESS);
                 }
 
-                /* Process input byte by byte */
-                for (int i=0; i<bytes_read; i++)
+                /* script hook on local receive */
+                const char *lorx_buffer = input_buffer;
+                size_t lorx_buffer_length = bytes_read;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_LOCAL_RECEIVE;
+                if (script_hook_enabled(hook_id))
                 {
-                    input_char = input_buffer[i];
+                    script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                                          input_buffer,
+                                                                          bytes_read,
+                                                                          &lorx_buffer,
+                                                                          &lorx_buffer_length);
+                    if (hook_result == SCRIPT_HOOK_DROP)
+                    {
+                        tio_error_printf("Dropped hook due to fatal error");
+                        lorx_buffer_length = 0;
+                    }
+                }
+
+                /* Process input byte by byte */
+                for (size_t i = 0; i < lorx_buffer_length; i++)
+                {
+                    input_char = lorx_buffer[i];
 
                     /* Forward input to output */
                     output_char = input_char;
@@ -3482,12 +3878,17 @@ int tty_connect(void)
                 /***************************/
                 /* Input from socket ready */
                 /***************************/
+                const char *output_buffer = NULL;
+                size_t output_buffer_length = 0;
 
-                forward = socket_handle_input(&rdfs, &output_char);
+                forward = socket_handle_input(&rdfs, &output_buffer, &output_buffer_length);
 
                 if (forward)
                 {
-                    forward_to_tty(device_fd, output_char);
+                    for (size_t j = 0; j < output_buffer_length; j++)
+                    {
+                        forward_to_tty(device_fd, output_buffer[j]);
+                    }
                 }
 
                 tty_sync(device_fd);

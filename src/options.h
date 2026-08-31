@@ -54,6 +54,7 @@ typedef enum
 struct option_t
 {
     char *target;
+    char *config_filename;
     int baudrate;
     int databits;
     flow_t flow;
@@ -76,6 +77,7 @@ struct option_t
     bool log_strip;
     bool local_echo;
     timestamp_t timestamp;
+    timestamp_t log_timestamp;
     char *log_filename;
     char *log_directory;
     char *socket;
@@ -165,3 +167,6 @@ void option_parse_key_mappings(const char *keymap);
 const char* option_raw_to_string(raw_t raw);
 
 void keymaps_print(const char *title, int indent);
+
+timestamp_t get_concrete_log_timestamp(void);
+

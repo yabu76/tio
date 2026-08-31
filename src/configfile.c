@@ -237,6 +237,20 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
             string = NULL;
         }
     }
+    config_get_bool(key_file, group, "log-timestamp",
+                    (bool*) &option.log_timestamp);
+    if (option.log_timestamp != TIMESTAMP_NONE)
+    {
+        config_get_string(key_file, group, "log-timestamp-format", &string,
+                          "24hour", "24hour-start", "24hour-delta", "iso8601",
+                          "epoch", "epoch-usec", "inherit", NULL);
+        if (string != NULL)
+        {
+            option_parse_timestamp(string, &option.log_timestamp);
+            g_free((void *)string);
+            string = NULL;
+        }
+    }
     config_get_integer(key_file, group, "timestamp-timeout", &option.timestamp_timeout, 0, INT_MAX);
     config_get_bool(key_file, group, "log", &option.log);
     config_get_string(key_file, group, "log-file", &option.log_filename, NULL);
@@ -342,6 +356,19 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
 
 static int config_file_resolve(void)
 {
+    if (option.config_filename)
+    {
+        config.path = realpath(option.config_filename, NULL);
+        if (config.path)
+        {
+            if (access(config.path, F_OK) == 0)
+            {
+                return 0;
+            }
+            free(config.path);
+        }
+    }
+
     char *xdg = getenv("XDG_CONFIG_HOME");
     if (xdg)
     {

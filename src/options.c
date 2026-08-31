@@ -44,6 +44,7 @@ enum opt_t
     OPT_LOG_DIRECTORY,
     OPT_LOG_STRIP,
     OPT_LOG_APPEND,
+    OPT_LOG_TIMESTAMP_FORMAT,
     OPT_OUTPUT_LINE_DELAY_CHAR,
     OPT_LINE_PULSE_DURATION,
     OPT_RS485,
@@ -71,6 +72,7 @@ enum opt_t
 /* Default options */
 struct option_t option =
 {
+    .config_filename = NULL,
     .target = "",
     .baudrate = 115200,
     .databits = 8,
@@ -96,6 +98,7 @@ struct option_t option =
     .log_strip = false,
     .local_echo = false,
     .timestamp = TIMESTAMP_NONE,
+    .log_timestamp = TIMESTAMP_INHERIT,
     .socket = NULL,
     .color = 256, // Bold
     .input_mode = INPUT_MODE_NORMAL,
@@ -152,6 +155,7 @@ void option_print_help(char *argv[])
     printf("Connect to TTY device directly or via configuration profile or topology ID.\n");
     printf("\n");
     printf("Options:\n");
+    printf("  -C, --config-file <filename>           Use specified config file instead of standard config file\n");
     printf("  -b, --baudrate <bps>                   Baud rate (default: 115200)\n");
     printf("  -d, --databits 5|6|7|8                 Data bits (default: 8)\n");
     printf("  -f, --flow hard|soft|none              Flow control (default: none)\n");
@@ -179,6 +183,8 @@ void option_print_help(char *argv[])
     printf("      --log-directory <path>             Set log directory path for automatic named logs\n");
     printf("      --log-append                       Append to log file\n");
     printf("      --log-strip                        Strip control characters and escape sequences\n");
+    printf("  -T, --log-timestamp                    Enable line timestamps in log file\n");
+    printf("      --log-timestamp-format <format>    Set log file timestamp format (default: inherit)\n");
     printf("  -m, --map <flags>                      Map characters\n");
     printf("      --keymap <keymaps>                 Set key-script mappings\n");
     printf("  -c, --color 0..255|bold|none|list      Colorize tio text (default: bold)\n");
@@ -429,6 +435,10 @@ const char* option_timestamp_format_to_string(timestamp_t timestamp)
             return "epoch-usec";
             break;
 
+        case TIMESTAMP_INHERIT:
+            return "inherit";
+            break;
+
         default:
             return "unknown";
             break;
@@ -462,6 +472,10 @@ void option_parse_timestamp(const char *arg, timestamp_t *timestamp)
     else if (strcmp(arg, "epoch-usec") == 0)
     {
         *timestamp = TIMESTAMP_EPOCH_USEC;
+    }
+    else if (strcmp(arg, "inherit") == 0)
+    {
+        *timestamp = TIMESTAMP_INHERIT;
     }
     else
     {
@@ -939,6 +953,7 @@ void options_print()
         }
         tio_printf(" Log append: %s", option.log_append ? "true" : "false");
         tio_printf(" Log strip: %s", option.log_strip ? "true" : "false");
+        tio_printf(" Log timestamp: %s", option_timestamp_format_to_string(option.log_timestamp));
     }
     if (option.socket)
     {
@@ -989,6 +1004,7 @@ void options_parse(int argc, char *argv[])
         // clang-format off
         static struct option long_options[] =
         {
+            {"config-file",          required_argument, 0, 'C'                     },
             {"baudrate",             required_argument, 0, 'b'                     },
             {"databits",             required_argument, 0, 'd'                     },
             {"flow",                 required_argument, 0, 'f'                     },
@@ -1014,6 +1030,8 @@ void options_parse(int argc, char *argv[])
             {"log-directory",        required_argument, 0, OPT_LOG_DIRECTORY       },
             {"log-append",           no_argument,       0, OPT_LOG_APPEND          },
             {"log-strip",            no_argument,       0, OPT_LOG_STRIP           },
+            {"log-timestamp",        no_argument,       0, 'T'                     },
+            {"log-timestamp-format", required_argument, 0, OPT_LOG_TIMESTAMP_FORMAT },
             {"socket",               required_argument, 0, 'S'                     },
             {"map",                  required_argument, 0, 'm'                     },
             {"keymap",               required_argument, 0, OPT_KEYMAP              },
@@ -1043,7 +1061,7 @@ void options_parse(int argc, char *argv[])
         int option_index = 0;
 
         /* Parse argument using getopt_long */
-        c = getopt_long(argc, argv, "b:d:f:s:p:o:O:a:nNetLlS:m:c:xrvh", long_options, &option_index);
+        c = getopt_long(argc, argv, "C:b:d:f:s:p:o:O:a:nNetTLlS:m:c:xrvh", long_options, &option_index);
 
         /* Detect the end of the options */
         if (c == -1)
@@ -1059,6 +1077,10 @@ void options_parse(int argc, char *argv[])
                 if (optarg)
                     printf(" with arg %s", optarg);
                 printf("\n");
+                break;
+
+            case 'C':
+                option.config_filename = optarg;
                 break;
 
             case 'b':
@@ -1132,8 +1154,23 @@ void options_parse(int argc, char *argv[])
                 }
                 break;
 
+            case 'T':
+                if (option.log_timestamp == TIMESTAMP_NONE)
+                {
+                    option.log_timestamp = TIMESTAMP_INHERIT;
+                }
+                break;
+
             case OPT_TIMESTAMP_FORMAT:
                 option_parse_timestamp(optarg, &option.timestamp);
+                if (option.timestamp == TIMESTAMP_INHERIT)
+                {
+                    option.timestamp = TIMESTAMP_24HOUR;
+                }
+                break;
+
+            case OPT_LOG_TIMESTAMP_FORMAT:
+                option_parse_timestamp(optarg, &option.log_timestamp);
                 break;
 
             case OPT_TIMESTAMP_TIMEOUT:
@@ -1493,4 +1530,13 @@ void option_parse_key_mappings(const char *keymap)
     }
  parse_end:
     free(buffer);
+}
+
+timestamp_t get_concrete_log_timestamp(void)
+{
+    if (option.log_timestamp == TIMESTAMP_INHERIT)
+    {
+        return option.timestamp;
+    }
+    return option.log_timestamp;
 }

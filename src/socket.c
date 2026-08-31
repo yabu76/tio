@@ -42,6 +42,10 @@ static int sockfd;
 static int clientfds[MAX_SOCKET_CLIENTS];
 static int socket_family = AF_UNSPEC;
 static int port_number = SOCKET_PORT_DEFAULT;
+static char socket_read_buffer[BUFSIZ];
+static char socket_read_edit_buffer[BUFSIZ * 2 * MAX_SOCKET_CLIENTS];
+static size_t socket_read_buffer_length = 0;
+static size_t socket_read_edit_buffer_length = 0;
 
 static const char *socket_filename(void)
 {
@@ -101,7 +105,7 @@ static bool socket_stale(const char *path)
         strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
 
         /* Perform connect to test if socket is active */
-        if (connect(sockfd, (struct sockaddr *) &addr, sizeof(struct sockaddr_un)) == -1)
+        if (connect(sfd, (struct sockaddr *) &addr, sizeof(struct sockaddr_un)) == -1)
         {
             if (errno == ECONNREFUSED)
             {
@@ -111,7 +115,7 @@ static bool socket_stale(const char *path)
         }
 
         /* Cleanup */
-        close(sockfd);
+        close(sfd);
     }
 
     return stale;
@@ -124,7 +128,7 @@ void socket_configure(void)
     struct sockaddr_in6 sockaddr_inet6 = {};
     struct sockaddr *sockaddr_p;
     socklen_t socklen;
-    int optval;
+    int optval = 1;
 
     /* Parse socket string */
 
@@ -226,15 +230,19 @@ void socket_configure(void)
         exit(EXIT_FAILURE);
     }
 
-#if defined(SO_NOSIGPIPE) && !defined(MSG_NOSIGNAL)
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR | SO_NOSIGPIPE, &optval, sizeof(optval)))
-#else
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)))
-#endif
     {
         tio_error_printf("Failed to set socket options (%s)", strerror(errno));
         exit(EXIT_FAILURE);
     }
+
+#if defined(SO_NOSIGPIPE) && !defined(MSG_NOSIGNAL)
+    if (setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, &optval, sizeof(optval)))
+    {
+        tio_error_printf("Failed to set socket options (%s)", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+#endif
 
     /* Bind */
     if (bind(sockfd, sockaddr_p, socklen) < 0)
@@ -270,20 +278,49 @@ void socket_write(char input_char)
         return;
     }
 
+    /* script hook on socket send */
+    const char *sotx_buffer = &input_char;
+    size_t sotx_buffer_length = sizeof(input_char);
+    script_hook_id_t hook_id = SCRIPT_HOOK_ID_SOCKET_SEND;
+
+    if (script_hook_enabled(hook_id))
+    {
+        script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                              &input_char,
+                                                              sizeof(input_char),
+                                                              &sotx_buffer,
+                                                              &sotx_buffer_length);
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+            return;
+        }
+    }
+    if (sotx_buffer_length == 0)
+    {
+        return;
+    }
+
     for (int i = 0; i != MAX_SOCKET_CLIENTS; ++i)
     {
         if (clientfds[i] != -1)
         {
+            ssize_t sent = 0;
+            for (size_t total_sent = 0; total_sent < sotx_buffer_length; total_sent += sent)
+            {
 
 #if defined(SO_NOSIGPIPE) && !defined(MSG_NOSIGNAL)
-            if (send(clientfds[i], &input_char, 1, 0) <= 0)
+                sent = send(clientfds[i], &sotx_buffer[total_sent], sotx_buffer_length - total_sent, 0);
 #else
-            if (send(clientfds[i], &input_char, 1, MSG_NOSIGNAL) <= 0)
+                sent = send(clientfds[i], &sotx_buffer[total_sent], sotx_buffer_length - total_sent, MSG_NOSIGNAL);
 #endif
-            {
-                tio_error_printf_silent("Failed to write to socket (%s)", strerror(errno));
-                close(clientfds[i]);
-                clientfds[i] = -1;
+                if (sent <= 0)
+                {
+                    tio_error_printf_silent("Failed to write to socket (%s)", strerror(errno));
+                    close(clientfds[i]);
+                    clientfds[i] = -1;
+                    break;
+                }
             }
         }
     }
@@ -319,7 +356,7 @@ int socket_add_fds(fd_set *rdfs, bool connected)
     return maxfd;
 }
 
-bool socket_handle_input(fd_set *rdfs, char *output_char)
+bool socket_handle_input(fd_set *rdfs, const char **output_buffer, size_t *output_buffer_length)
 {
     if (!option.socket)
     {
@@ -339,11 +376,15 @@ bool socket_handle_input(fd_set *rdfs, char *output_char)
             }
         }
     }
+
+    char *edit_char = socket_read_edit_buffer;
+    socket_read_edit_buffer_length = 0;
+
     for (int i = 0; i != MAX_SOCKET_CLIENTS; ++i)
     {
         if (clientfds[i] != -1 && FD_ISSET(clientfds[i], rdfs))
         {
-            int status = read(clientfds[i], output_char, 1);
+            int status = read(clientfds[i], socket_read_buffer, sizeof(socket_read_buffer));
             if (status == 0)
             {
                 close(clientfds[i]);
@@ -357,28 +398,70 @@ bool socket_handle_input(fd_set *rdfs, char *output_char)
                 clientfds[i] = -1;
                 continue;
             }
+            socket_read_buffer_length = status;
+        }
+
+        /* IMAP for socket read */
+        for (size_t j = 0; j < socket_read_buffer_length; j++)
+        {
+            char ch = socket_read_buffer[j];
+
+            if (socket_read_edit_buffer_length > sizeof(socket_read_edit_buffer)) {
+                tio_error_printf("Overflow in socket read edit buffer");
+                exit(EXIT_FAILURE);
+            }
 
             /* If INLCR is set, a received NL character shall be translated into a CR character */
-            if (*output_char == '\n' && option.map_i_nl_cr)
+            if (ch == '\n' && option.map_i_nl_cr)
             {
-                *output_char = '\r';
+                *edit_char++ = '\r';
+                socket_read_edit_buffer_length++;
             }
-            else if (*output_char == '\r')
+            else if (ch == '\r')
             {
                 /* If IGNCR is set, a received CR character shall be ignored (not read). */
                 if (option.map_ign_cr)
                 {
-                    return false;
+                    continue;
                 }
 
                 /* If IGNCR is not set and ICRNL is set, a received CR character shall be translated into an NL character. */
                 if (option.map_i_cr_nl)
                 {
-                    *output_char = '\n';
+                    *edit_char++ = '\n';
+                    socket_read_edit_buffer_length++;
                 }
             }
-            return true;
+            else
+            {
+                *edit_char++ = ch;
+                socket_read_edit_buffer_length++;
+            }
         }
     }
-    return false;
+
+    /* script hook on socket receive */
+    const char *sorx_buffer = socket_read_edit_buffer;
+    size_t sorx_buffer_length = socket_read_edit_buffer_length;
+    script_hook_id_t hook_id = SCRIPT_HOOK_ID_SOCKET_RECEIVE;
+
+    if (script_hook_enabled(hook_id))
+    {
+        script_hook_result_t hook_result = script_hook_filter(hook_id,
+                                                              socket_read_edit_buffer,
+                                                              socket_read_edit_buffer_length,
+                                                              &sorx_buffer,
+                                                              &sorx_buffer_length);
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+            sorx_buffer = socket_read_edit_buffer;
+            sorx_buffer_length = 0;
+        }
+    }
+
+    *output_buffer = sorx_buffer;
+    *output_buffer_length = sorx_buffer_length;
+
+    return sorx_buffer_length > 0;
 }

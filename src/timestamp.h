@@ -30,10 +30,11 @@ typedef enum
     TIMESTAMP_ISO8601,
     TIMESTAMP_EPOCH,
     TIMESTAMP_EPOCH_USEC,
+    TIMESTAMP_INHERIT,
     TIMESTAMP_END,
 } timestamp_t;
 
 #define TIME_STRING_SIZE_MAX 24
 
-char *timestamp_current_time(void);
+char *timestamp_current_time(timestamp_t);
 

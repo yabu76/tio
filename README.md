@@ -64,6 +64,7 @@ when used in combination with [tmux](https://tmux.github.io).
  * Timestamp support
    * Per line in normal output mode
    * Output timeout timestamps in hex output mode
+   * Independent timestamp specifications for screen output and log.
  * Support for delayed output
    * Per character
    * Per line
@@ -111,6 +112,7 @@ Usage: tio [<options>] <tty-device|profile|tid>
 Connect to TTY device directly or via configuration profile or topology ID.
 
 Options:
+  -C, --config-file <filename>           Use specified config file instead of standard config file
   -b, --baudrate <bps>                   Baud rate (default: 115200)
   -d, --databits 5|6|7|8                 Data bits (default: 8)
   -f, --flow hard|soft|none              Flow control (default: none)
@@ -132,6 +134,8 @@ Options:
   -t, --timestamp                        Enable line timestamp
       --timestamp-format <format>        Set timestamp format (default: 24hour)
       --timestamp-timeout <ms>           Set timestamp timeout (default: 200)
+  -T, --log-timestamp                    Enable line timestamps in log file
+      --log-timestamp-format <format>    Set log file timestamp format (default: inherit)
   -l, --list                             List available serial devices, TIDs, and profiles
   -L, --log                              Enable log to file
       --log-file <filename>              Set log filename
@@ -350,6 +354,7 @@ The history is maintained while tio is running.
 
 Options can be set via the configuration file first found in any of the
 following locations in the order listed:
+ - The file specified by the -C or --config-file option
  - $XDG_CONFIG_HOME/tio/config
  - $HOME/.config/tio/config
  - $HOME/.tioconfig
@@ -460,6 +465,30 @@ Write string to serial device with input-editing, output-mapping and output-dela
 
 Returns the tio table on success or nil on error.
 
+#### `tio.rx_filter(callback_or_nil)`
+
+Register a receive filter callback for bytes read from the serial device. The
+callback receives each RX chunk as a Lua string before tio applies normal RX
+processing.
+
+If the callback returns a string, tio processes that string as if it had been
+read from the serial device, including timestamping, input mappings, display,
+logging, and socket forwarding. If it returns `nil`, tio drops the chunk. Lua
+strings are byte strings, so filters may return embedded NUL bytes and arbitrary
+binary data.
+
+Only the serial RX path is filtered; keyboard, stdin, socket-client input, and
+`tio.write` output to the serial device are unchanged.
+
+The Lua state remains alive while a filter is registered, so callback closure
+state persists across RX chunks. Scripts run while a filter is active share that
+same Lua state. Call `tio.rx_filter(nil)` to disable the filter.
+
+If the callback raises an error or returns a value other than a Lua string or
+`nil`, tio reports a warning, disables the filter, and passes the current chunk
+through unchanged. Other Lua types, including numbers, are not accepted as
+strings.
+
 #### `tio.send(file, protocol)`
 
 Send file using x/y-modem protocol.
@@ -540,6 +569,43 @@ Print a formatted line using sub-command style output
 Print string using sub-command style output.
 (e.g. [<time-stamp>] <string>).
 
+#### `tio.input_thread_pause()`
+
+Pause tio's input thread capturing standard input.
+
+#### `tio.input_thread_resume()`
+
+Resume tio's input thread capturing standard input.
+
+#### `tio.set_stdin_mode(mode)`
+
+Change stdin mode (tty setting).
+
+Mode can be `os` or `tio`.
+
+`os` represents the state of the device before tio starts.
+
+`tio` represents the state of the device after tio starts.
+
+If stdout is connected to the same tty, the settings of it will also be changed.
+
+#### `tio.set_stdout_mode(mode)`
+
+Change stdout mode (tty setting).
+
+Mode can be `os` or `tio`.
+
+`os` represents the state of the device before tio starts.
+
+`tio` represents the state of the device after tio starts.
+
+If stdin is connected to the same tty, the settings of it will also be changed.
+
+#### `tio.set_sleep_echo(bool)`
+
+If true, `tio.sleep()` or `tio.msleep` emit a aingle timestamp to stdout and log file
+per tio.set_sleep_echo(true). Defaults to true.
+
 #### `tio.alwaysecho`
 
 A boolean value, defaults to `true`.
@@ -592,7 +658,9 @@ The latest source releases can be found [here](https://github.com/tio/tio/releas
 Before running the install steps make sure you have glib and lua libraries installed. For example:
 
 ```
-$ sudo apt install libglib2.0-dev liblua5.2-dev
+$ sudo apt install libglib2.0-dev libluajit-5.1-dev
+or
+$ sudo apt install libglib2.0-dev liblua-5.4-dev
 ```
 
 Install steps:
