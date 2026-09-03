@@ -35,13 +35,16 @@ tio_dep = [
   dependency('glib-2.0', required: true),
 ]
 
-foreach name: ['luajit', 'luajit-5.1']
-  luajit_dep = dependency(name, version: '>=2.1', required: false)
-  if luajit_dep.found()
-    break
-  endif
-endforeach
-if not luajit_dep.found()
+use_luajit = get_option('use_luajit')
+if use_luajit
+  foreach name: ['luajit', 'luajit-5.1']
+    luajit_dep = dependency(name, version: '>=2.1', required: false)
+    if luajit_dep.found()
+      break
+    endif
+  endforeach
+endif
+if not (use_luajit and luajit_dep.found())
   foreach name: ['lua-5.4', 'lua-5.3', 'lua-5.2', 'lua-5.1', 'lua']
     lua_dep = dependency(name, version: '>=5.1', required: false)
     if lua_dep.found()
@@ -49,7 +52,7 @@ if not luajit_dep.found()
     endif
   endforeach
 endif
-if luajit_dep.found()
+if use_luajit and luajit_dep.found()
   tio_dep += [luajit_dep]
 elif lua_dep.found()
   tio_dep += [lua_dep]

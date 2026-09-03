@@ -4,3 +4,6 @@ option('bashcompletiondir',
 option('install_man_pages',
        type : 'boolean', value: true,
        description : 'Install man pages')
+option('use_luajit',
+       type : 'boolean', value: true,
+       description : 'Use luajit')
