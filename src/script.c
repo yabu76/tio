@@ -50,7 +50,7 @@ static lua_State *script_interp = NULL;
 
 // clang-format off
 static char script_init[] =
-"local unpack = table.unpack or unpack\n"
+"table.unpack = table.unpack or unpack\n"
 "tio.C = {\n"
 "    EXPECT_CLEANUP_READ_SIZE = 4096,\n"
 "    WAIT_FOREVER = 0,\n"
