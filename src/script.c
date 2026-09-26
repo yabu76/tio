@@ -116,10 +116,10 @@ static char script_init[] =
 "    tio.subcmd_puts(string.format(fmt, select(1, ...)))\n"
 "end\n"
 "tio.subcmd_warning_println = function(fmt, ...)\n"
-"    tio.subcmd_warning_puts(fmt, string.format(fmt, select(1, ...)))\n"
+"    tio.subcmd_warning_puts(string.format(fmt, select(1, ...)))\n"
 "end\n"
 "tio.subcmd_error_println = function(fmt, ...)\n"
-"    tio.subcmd_error_puts(fmt, string.format(fmt, select(1, ...)))\n"
+"    tio.subcmd_error_puts(string.format(fmt, select(1, ...)))\n"
 "end\n"
 "tio.alwaysecho = true\n"
 "setmetatable(tio, tio)\n";
