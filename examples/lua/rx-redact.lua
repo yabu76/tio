@@ -4,7 +4,7 @@
 -- Usage:
 --   tio --script-file examples/lua/rx-redact.lua /dev/ttyUSB0
 
-tio.rx_filter(function(data)
+tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     data = data:gsub("password=[^%s]+", "password=<redacted>")
     data = data:gsub("token=[^%s]+", "token=<redacted>")
 
