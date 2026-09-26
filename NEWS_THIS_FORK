@@ -1,7 +1,6 @@
 Please refer to NEWS for the digest featuress of the upstream repository.
 
 Hidefumi Yabu <yabu76@gmail.com>:
-
  * Add Lua API tio.twrite() that supports output-mapping, output-delay, and input-mode
  * Add option output-line-delay-char to specify the line-delay trigger character
  * Add --script function to the ctrl-t r key command ("Run script")
@@ -58,7 +57,6 @@ Hidefumi Yabu <yabu76@gmail.com>:
  * Add option --config-file/-C that use specified config file.
 
 Erling Sigurdson <efimov-d-v@yandex.ru>:
-
  * Add option --no-tty-restore / -N that omits tty_restore() call - #348
      (c74273ecaa132cf3076d8469a3a401fbced6e097)
 
@@ -79,3 +77,6 @@ Antti P Miettinen <anttipmiettinen>
 Andi Powers-Holmes <aholmes@omnom.net>
  * Minor fix for printf format string in src/xymodem.c - #353
    (9d0edde6f6b0db81835dd5a91c7e457f4732c92a)
+
+Dr. Bernd Donner <BerndDonner>
+ * Fix Meson target for renamed e2e test suite - #1
