@@ -93,9 +93,9 @@ tio_exe = executable('tio',
 
 python3 = find_program('python3', required: false)
 if python3.found()
-  test('rx-filter', python3,
-    args: [files('../tests/rx_filter.py'), tio_exe],
-    timeout: 30)
+  test('e2e', python3,
+    args: [files('../tests/e2e_test.py'), tio_exe],
+    timeout: 60)
 endif
 
 subdir('bash-completion')
