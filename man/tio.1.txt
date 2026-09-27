@@ -625,7 +625,8 @@ SCRIPT API
              Print a formatted warning line using sub-command style output.
 
        tio.subcmd_error_println(fmt, ...)
-             Print a formatted error line using sub-command style output.
+             Push a formatted error line using sub-command style output to error message buffer.
+             This error message is displayed when tio terminates.
 
        tio.subcmd_puts(string)
              Print a string using sub-command style output.
@@ -637,7 +638,8 @@ SCRIPT API
              Print a warning string using sub-command style output.
 
        tio.subcmd_error_puts(string)
-             Print an error string using sub-command style output.
+             Push an error string using sub-command style output to error message buffer.
+             This error message is displayed when tio terminates.
 
        tio.alwaysecho
              A boolean value, defaults to true.
