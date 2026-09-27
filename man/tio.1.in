@@ -785,8 +785,8 @@ The output format is:
 Print a formatted warning line using sub-command style output.
 
 .IP "\fBtio.subcmd_error_println(fmt, ...)"
-Print a formatted error line using sub-command style output.
-.IP "\fBtio.subcmd_error_println(fmt, ...)"
+Push a formatted error line using sub-command style output to error message buffer.
+This error message is displayed when tio terminates.
 
 .IP "\fBtio.subcmd_puts(string)"
 Print a string using sub-command style output.
@@ -798,7 +798,8 @@ The output format is:
 Print a warning string using sub-command style output.
 
 .IP "\fBtio.subcmd_error_puts(string)"
-Print an error string using sub-command style output.
+Push an error string using sub-command style output to error message buffer.
+This error message is displayed when tio terminates.
 
 .IP "\fBtio.input_thread_pause()"
 Pause tio's input thread capturing standard input.

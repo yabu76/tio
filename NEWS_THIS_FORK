@@ -80,3 +80,4 @@ Andi Powers-Holmes <aholmes@omnom.net>
 
 Dr. Bernd Donner <BerndDonner>
  * Fix Meson target for renamed e2e test suite - #1
+ * Fix formatted Lua subcmd warning and error output - #2
