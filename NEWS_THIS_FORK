@@ -1,7 +1,6 @@
 Please refer to NEWS for the digest featuress of the upstream repository.
 
 Hidefumi Yabu:
-
  * Add Lua API tio.twrite() that supports output-mapping, output-delay, and input-mode
  * Add option output-line-delay-char to specify the line-delay trigger character
  * Add --script function to the ctrl-t r key command ("Run script")
@@ -49,6 +48,7 @@ Hidefumi Yabu:
    To suppress this feature, add option --no-line-history-save.
 
 Erling Sigurdson:
-
  * Add option --no-tty-restore / -N that omits tty_restore() call - #348
 
+Dr. Bernd Donner <BerndDonner>
+ * Fix formatted Lua subcmd warning and error output - #2
