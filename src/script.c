@@ -439,6 +439,11 @@ static int api_write(lua_State *L)
 }
 
 // lua: tio.twrite(string)
+inline static bool is_valid_hex(char c)
+{
+    return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+}
+
 static int api_twrite(lua_State *L)
 {
     size_t len = 0;
@@ -451,6 +456,10 @@ static int api_twrite(lua_State *L)
 
     for (; len > 0; --len, string++)
     {
+        if ((option.input_mode == INPUT_MODE_HEX) && ! is_valid_hex(*string))
+        {
+            continue;
+        }
         forward_to_tty(device_fd, *string);
     }
     tty_sync(device_fd);

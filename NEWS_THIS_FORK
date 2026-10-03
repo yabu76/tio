@@ -55,6 +55,7 @@ Hidefumi Yabu <yabu76@gmail.com>:
  * Add Lua API tio.start_timer(), tio.stop_timer() for timeout hooking.
  * Add inherit option to log-timestamp-format.
  * Add option --config-file/-C that use specified config file.
+ * Enable pasting of long hexadecimal strings in hex input mode.
 
 Erling Sigurdson <efimov-d-v@yandex.ru>:
  * Add option --no-tty-restore / -N that omits tty_restore() call - #348

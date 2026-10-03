@@ -297,7 +297,7 @@ In normal mode input characters are sent immediately as they are typed.
 
 In hex input mode bytes can be sent by typing the \fBtwo-character
 hexadecimal\fR representation of the 1 byte value, e.g.: to send \fI0xA\fR you
-must type \fI0a\fR or \fI0A\fR.
+must type \fI0a\fR or \fI0A\fR. Whitespace characters are ignored.
 
 In line input mode input characters are sent when you press enter.
 You can use the cursor keys and backspace key to edit the line and recall command

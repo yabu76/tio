@@ -788,16 +788,28 @@ static void handle_hex_prompt(char c)
 {
     hex_chars[hex_char_index++] = c;
 
-    printf("%c", c);
+    if (option.local_echo == false)
+    {
+        if (hex_char_index == 1)
+        {
+            printf("<%c", c);
+        }
+        else if (hex_char_index == 2)
+        {
+            printf("%c>", c);
+        }
+    }
+    else
+    {
+        printf("%c", c);
+    }
     print_tainted_set();
 
     if (hex_char_index == 2)
     {
-        usleep(100*1000);
         if (option.local_echo == false)
         {
-            printf("\b \b");
-            printf("\b \b");
+            printf("\b\b\b\b"); // Move the cursor back to the prompt. (simple and not perfect)
         }
         else
         {
@@ -3834,7 +3846,12 @@ int tty_connect(void)
                             switch (option.input_mode)
                             {
                                 case INPUT_MODE_HEX:
-                                    if (!is_valid_hex(input_char))
+                                    if (isspace((unsigned char)input_char))
+                                    {
+                                        // skip space
+                                        forward = false;
+                                    }
+                                    else if (!is_valid_hex(input_char))
                                     {
                                         tio_warning_printf("Invalid hex character: '%d' (0x%02x)", input_char, input_char);
                                         forward = false;
