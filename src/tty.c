@@ -153,11 +153,14 @@ typedef enum
 #define MLINE_MAX 4096
 #define INKEY_CHARS_MAX 16
 
-#define TIMER_TICK_MS 100
 bool timer_valid = false;
-bool timer_auto_repeated = false;
-struct timeval timer_start_time = {};
-int timer_expire_diff_ms = 0;
+bool timer_on_interval_exists = false;
+bool timer_on_complete_exists = false;
+struct timeval timer_start_dtime = {};
+struct timeval timer_on_interval_dtime = {};
+struct timeval timer_on_complete_dtime = {};
+struct timeval timer_interval = {};
+struct timeval timer_complete = {};
 
 // clang-format off
 const char random_array[] =
@@ -981,73 +984,173 @@ static bool tty_line_changed(int fd, int *lstat_now, int *lstat_before)
     return (*lstat_now & LINE_STATE_INPUT_MASK) != (*lstat_before & LINE_STATE_INPUT_MASK);
 }
 
-void timer_start(int expire_ms, bool auto_repeated)
+void timer_start(int interval_ms, int complete_ms)
 {
-    gettimeofday(&timer_start_time, NULL);
-    timer_auto_repeated = auto_repeated;
-    timer_expire_diff_ms = expire_ms;
-    timer_valid = true;
+    gettimeofday(&timer_start_dtime, NULL);
+
+    if (interval_ms >= 0)
+    {
+        timer_interval.tv_sec = interval_ms / 1000;
+        timer_interval.tv_usec = (interval_ms % 1000) * 1000;
+        timeradd(&timer_start_dtime, &timer_interval, &timer_on_interval_dtime);
+        timer_on_interval_exists = true;
+    }
+    if (complete_ms >= 0)
+    {
+        timer_complete.tv_sec = complete_ms / 1000;
+        timer_complete.tv_usec = (complete_ms % 1000) * 1000;
+        timeradd(&timer_start_dtime, &timer_complete, &timer_on_complete_dtime);
+        timer_on_complete_exists = true;
+    }
+
+    timer_valid = (timer_on_interval_exists || timer_on_complete_exists);
 }
 
 void timer_stop(void)
 {
     timer_valid = false;
+    timer_on_complete_exists = false;
+    timer_on_interval_exists = false;
 }
 
-void handle_timer_tick(bool ticked)
+static int compare_timeval(struct timeval *a, struct timeval *b)
 {
-    // this funcion should be called with script_hook_enabled(SCRIPT_HOOK_ID_TIMER_EXPIRE) true.
-    static struct timeval tval_before = {}, tval_now;
-    static bool tval_valid = false;
-    struct timeval tval_elapsed;
-
-    if (tval_valid == false)
+    if (a->tv_sec == b->tv_sec)
     {
-        gettimeofday(&tval_before, NULL);
-        tval_valid = true;
+        if (a->tv_usec > b->tv_usec)
+        {
+            return 1;
+        }
+        if (a->tv_usec < b->tv_usec)
+        {
+            return -1;
+        }
+        return 0;
+    }
+    if (a->tv_sec > b->tv_sec)
+    {
+        return 1;
+    }
+    // a->tv_sec < b->tv_sec
+    return -1;
+}
+
+static bool timer_is_alive(void)
+{
+    if (script_hook_enabled(SCRIPT_HOOK_ID_TIMER_INTERVAL) || script_hook_enabled(SCRIPT_HOOK_ID_TIMER_COMPLETE))
+    {
+        return timer_valid;
+    }
+    return false;
+}
+
+static bool timer_get_remain(struct timeval *tval_remain_ptr)
+{
+    struct timeval tval_now;
+    struct timeval *tval_target_ptr;
+    if (!timer_valid)
+    {
+        return false;
+    }
+
+    if (timer_on_interval_exists && timer_on_complete_exists)
+    {
+        if (compare_timeval(&timer_on_complete_dtime, &timer_on_interval_dtime) >= 0)
+        {
+            tval_target_ptr = &timer_on_interval_dtime;
+        }
+        else
+        {
+            tval_target_ptr = &timer_on_complete_dtime;
+        }
+    }
+    else if (timer_on_interval_exists)
+    {
+        tval_target_ptr = &timer_on_interval_dtime;
+    }
+    else if (timer_on_complete_exists)
+    {
+        tval_target_ptr = &timer_on_complete_dtime;
+    }
+    else
+    {
+        return false;
+    }
+
+    gettimeofday(&tval_now, NULL);
+    if (compare_timeval(tval_target_ptr, &tval_now) >= 0)
+    {
+        timersub(tval_target_ptr, &tval_now, tval_remain_ptr);
+    }
+    else
+    {
+        // already timeout, so shortest wait
+        tval_remain_ptr->tv_sec = 0;
+        tval_remain_ptr->tv_usec = 1;
+    }
+    return true;
+}
+
+void handle_timer(void)
+{
+    // this funcion should be called with script_hook_enabled(SCRIPT_HOOK_ID_TIMER_TIMEOUT) true.
+    struct timeval tval_now;
+
+    if (timer_valid == false)
+    {
         return;
     }
+
     gettimeofday(&tval_now, NULL);
 
-    if ( ! ticked )
+    struct timeval tval_elapsed;
+    uint64_t elapsed_ms;
+    timersub(&tval_now, &timer_start_dtime, &tval_elapsed);
+    elapsed_ms = ((uint64_t)tval_elapsed.tv_sec * 1000) + ((uint64_t)tval_elapsed.tv_usec / 1000);
+    if (elapsed_ms >= (0x1ULL << 32))
     {
-        timersub(&tval_now, &tval_before, &tval_elapsed);
-        ticked = ((tval_elapsed.tv_sec * 1000 + tval_elapsed.tv_usec / 1000) >= TIMER_TICK_MS);
+        // too long time (> 136.0years) elapsed.
+        timer_stop();
+        return;
     }
 
-    if ( ticked )
+    // handle interval timer
+    if (timer_on_interval_exists && (compare_timeval(&tval_now, &timer_on_interval_dtime) >= 0))
     {
-        // script hook on timer expire
-        if (timer_valid)
+        // script hook timer interval
+        script_hook_id_t hook_id = SCRIPT_HOOK_ID_TIMER_INTERVAL;
+        bool repeatable = false;
+        script_hook_result_t hook_result = script_hook_timer_interval(hook_id, elapsed_ms, &repeatable);
+        if (hook_result == SCRIPT_HOOK_DROP)
         {
-            struct timeval timer_elapsed_diff;
-            timersub(&tval_now, &timer_start_time, &timer_elapsed_diff);
-
-            int timer_elapsed_diff_ms = timer_elapsed_diff.tv_sec * 1000 + timer_elapsed_diff.tv_usec / 1000;
-            if (timer_elapsed_diff_ms >= timer_expire_diff_ms)
-            {
-                if (timer_auto_repeated)
-                {
-                    timer_start_time = tval_now;
-                    timer_valid = true;
-                }
-                else
-                {
-                    timer_valid = false;
-                }
-
-                script_hook_id_t hook_id = SCRIPT_HOOK_ID_TIMER_EXPIRE;
-                script_hook_result_t hook_result = script_hook_timer_expire(hook_id, timer_elapsed_diff_ms);
-                if (hook_result == SCRIPT_HOOK_DROP)
-                {
-                    tio_error_printf("Dropped hook due to fatal error");
-                }
-            }
+            tio_error_printf("Dropped hook due to fatal error");
+            timer_stop();
+            return;
         }
-        tval_before = tval_now;
+
+        if (repeatable)
+        {
+            timeradd(&timer_on_interval_dtime, &timer_interval, &timer_on_interval_dtime);
+        }
+        else
+        {
+            timer_on_interval_exists = false;
+        }
+    }
+
+    // handle complete timer
+    if (timer_on_complete_exists && (compare_timeval(&tval_now, &timer_on_complete_dtime) >= 0))
+    {
+        // script hook timer complete
+        script_hook_id_t hook_id = SCRIPT_HOOK_ID_TIMER_COMPLETE;
+        script_hook_result_t hook_result = script_hook_timer_complete(hook_id, elapsed_ms);
+        if (hook_result == SCRIPT_HOOK_DROP)
+        {
+            tio_error_printf("Dropped hook due to fatal error");
+        }
+        timer_stop();
     }
 }
-
 
 int tty_inkey(int mseconds)
 {
@@ -3498,10 +3601,6 @@ int tty_connect(void)
     /* Input loop */
     while (true)
     {
-        struct timeval tv_tick;
-        tv_tick.tv_sec = TIMER_TICK_MS / 1000;
-        tv_tick.tv_usec = (TIMER_TICK_MS % 1000) * 1000;
-
         opt_log_timestamp = get_concrete_log_timestamp();
 
         FD_ZERO(&rdfs);
@@ -3512,8 +3611,9 @@ int tty_connect(void)
         maxfd = MAX(maxfd, socket_add_fds(&rdfs, true));
 
         /* Block until input becomes available */
-        //        status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
-        status = select(maxfd + 1, &rdfs, NULL, NULL, &tv_tick);
+        struct timeval tv_timeout;
+        status = select(maxfd + 1, &rdfs, NULL, NULL,
+                        (timer_is_alive() && timer_get_remain(&tv_timeout)) ? &tv_timeout : NULL);
 
         /* check line signal and loop timer */
         if (status >= 0)
@@ -3533,10 +3633,10 @@ int tty_connect(void)
                 }
             }
 
-            // script hook on timer expired
-            if (script_hook_enabled(SCRIPT_HOOK_ID_TIMER_EXPIRE))
+            // script hook on timer timeout
+            if (timer_is_alive())
             {
-                handle_timer_tick(status == 0);
+                handle_timer();
             }
 
             // if timeout event only, reloop

@@ -127,6 +127,19 @@ static char script_init[] =
 
 static void script_hook_disable(script_hook_id_t hook_id);
 
+// For C API, the values for forever and nowait are swapped.
+static int convert_to_timeout_c(int timeout)
+{
+    if (timeout > 0)
+        return timeout;
+
+    if (timeout == 0)
+        return POLL_FOREVER;
+
+    // timeout < 0
+    return POLL_NOWAIT;
+}
+
 static bool alwaysecho(lua_State *L)
 {
     bool b;
@@ -480,15 +493,6 @@ static int api_read(lua_State *L)
         return luaL_error(L, "tty device not ready");
     }
 
-    // For C API, the values for forever and nowait are swapped.
-    int timeout_c;
-    if (timeout > 0)
-        timeout_c = timeout;
-    else if (timeout == 0)
-        timeout_c = POLL_FOREVER;
-    else if (timeout < 0)
-        timeout_c = POLL_NOWAIT;
-
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
 
@@ -500,7 +504,7 @@ static int api_read(lua_State *L)
     char *p = luaL_prepbuffer(&buffer);
 #endif
 
-    ssize_t ret = read_poll(device_fd, p, size, timeout_c);
+    ssize_t ret = read_poll(device_fd, p, size, convert_to_timeout_c(timeout));
     if (ret < 0)
         return luaL_error(L, "%s", strerror(errno));
 
@@ -533,20 +537,11 @@ static int api_readline(lua_State *L)
         return luaL_error(L, "tty device not ready");
     }
 
-    // For C API, the values for forever and nowait are swapped.
-    int timeout_c;
-    if (timeout > 0)
-        timeout_c = timeout;
-    else if (timeout == 0)
-        timeout_c = POLL_FOREVER;
-    else if (timeout < 0)
-        timeout_c = POLL_NOWAIT;
-
     luaL_buffinit(L, &b);
     luaL_prepbuffer(&b);
     while (true)
     {
-        int ret = read_poll(device_fd, &ch, 1, timeout_c);
+        int ret = read_poll(device_fd, &ch, 1, convert_to_timeout_c(timeout));
 
         if (ret < 0)
             return luaL_error(L, "%s", strerror(errno));
@@ -576,7 +571,6 @@ static int api_inkey(lua_State *L)
 {
     extern char inkey_chars[];
     int ret;
-    int mseconds;
     int arg_num = lua_gettop(L);
     int arg;
     if (arg_num == 0)
@@ -587,19 +581,7 @@ static int api_inkey(lua_State *L)
     {
         arg = lua_tointeger(L, 1);
     }
-    if (arg == 0)
-    {
-        mseconds = POLL_FOREVER;
-    }
-    else if (arg < 0)
-    {
-        mseconds = POLL_NOWAIT;
-    }
-    else
-    {
-        mseconds = arg;
-    }
-    ret = tty_inkey(mseconds);
+    ret = tty_inkey( convert_to_timeout_c(arg) );
     if (ret == 0)
     {
         /* Timeout */
@@ -1056,17 +1038,12 @@ static int api_set_sleep_echo(lua_State *L)
     return 0;
 }
 
-// lua: tio.start_timer(expired_ms, auto_repeated)
+// lua: tio.start_timer(interval_ms, complete_ms)
 static int api_start_timer(lua_State *L)
 {
-    int expire_ms = luaL_checkinteger(L, 1);
-    bool auto_repeated;
-    if ( ! (lua_isboolean(L, 2) || lua_isnoneornil(L, 2)) )
-    {
-        return luaL_error(L, "argument2 is not boolean");
-    }
-    auto_repeated = lua_toboolean(L, 2);
-    timer_start(expire_ms, auto_repeated);
+    int interval_ms = lua_isnil(L, 1) ? 0 : luaL_checkinteger(L, 1); // ms, zero value means forever.
+    int complete_ms = lua_isnil(L, 2) ? 0 : luaL_checkinteger(L, 2);
+    timer_start(convert_to_timeout_c(interval_ms), convert_to_timeout_c(complete_ms));
     return 0;
 }
 
@@ -1283,7 +1260,54 @@ script_hook_result_t script_hook_signal_change(script_hook_id_t hook_id, int lst
     return SCRIPT_HOOK_OK;
 }
 
-script_hook_result_t script_hook_timer_expire(script_hook_id_t hook_id, unsigned long elapsed_ms)
+script_hook_result_t script_hook_timer_interval(script_hook_id_t hook_id, unsigned long elapsed_ms, bool *timer_repeatable)
+{
+    *timer_repeatable = false;
+
+    if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
+    {
+        return SCRIPT_HOOK_DROP;
+    }
+
+    script_hook_t *hook = &script_hook[hook_id];
+
+    if (!script_hook_enabled(hook_id))
+    {
+        return SCRIPT_HOOK_OK;
+    }
+
+    lua_rawgeti(script_interp, LUA_REGISTRYINDEX, hook->ref);
+    lua_pushinteger(script_interp, elapsed_ms);
+
+    int error = lua_pcall(script_interp, 1, 1, 0);
+    if (error)
+    {
+        const char *message = lua_tostring(script_interp, -1);
+        tio_warning_printf("lua: hook_filter failed: %s; disabling hook",
+                           message != NULL ? message : "unknown error");
+        lua_pop(script_interp, 1);
+        script_hook_disable(hook_id);
+        return SCRIPT_HOOK_OK;
+    }
+
+    if (lua_isnil(script_interp, -1))
+    {
+        lua_pop(script_interp, 1);
+        script_hook_cleanup(hook_id);
+        return SCRIPT_HOOK_DROP;
+    }
+
+    if (lua_toboolean(script_interp, -1))
+    {
+        // If the hook's return value is neither false nor nil, the timer can be repeated.
+        *timer_repeatable = true;
+    }
+
+    lua_pop(script_interp, 1);
+    return SCRIPT_HOOK_OK;
+}
+
+script_hook_result_t script_hook_timer_complete(script_hook_id_t hook_id, unsigned long elapsed_ms)
 {
     if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
     {
@@ -1492,7 +1516,8 @@ static void script_set_consts(lua_State *L)
     script_set_field_integer(L, "HK_SOCKET_RECEIVE", SCRIPT_HOOK_ID_SOCKET_RECEIVE);
     script_set_field_integer(L, "HK_SOCKET_SEND", SCRIPT_HOOK_ID_SOCKET_SEND);
     script_set_field_integer(L, "HK_SIGNAL_CHANGE", SCRIPT_HOOK_ID_SIGNAL_CHANGE);
-    script_set_field_integer(L, "HK_TIMER_EXPIRE", SCRIPT_HOOK_ID_TIMER_EXPIRE);
+    script_set_field_integer(L, "HK_TIMER_INTERVAL", SCRIPT_HOOK_ID_TIMER_INTERVAL);
+    script_set_field_integer(L, "HK_TIMER_COMPLETE", SCRIPT_HOOK_ID_TIMER_COMPLETE);
 
     script_set_field_integer(L, "SG_BMASK_DTR", TIOCM_DTR);
     script_set_field_integer(L, "SG_BMASK_RTS", TIOCM_RTS);
