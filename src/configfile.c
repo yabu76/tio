@@ -300,7 +300,7 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
     }
     config_get_string(key_file, group, "socket", &option.socket, NULL);
     config_get_bool(key_file, group, "rs-485", &option.rs485);
-    config_get_string(key_file, group, "rs-385-config", &string, NULL);
+    config_get_string(key_file, group, "rs-485-config", &string, NULL);
     if (string != NULL)
     {
         rs485_parse_config(string);
