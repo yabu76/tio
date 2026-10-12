@@ -72,6 +72,6 @@ script_hook_result_t script_hook_filter(script_hook_id_t hook_id,
                                         const char **filtered_data, size_t *filtered_length);
 script_hook_result_t script_hook_signal_change(script_hook_id_t hook_id, int lstat_now, int lstat_before);
 script_hook_result_t script_hook_timer_interval(script_hook_id_t hook_id, unsigned long elpased_ms, bool *timer_repeatable);
-script_hook_result_t script_hook_timer_complete(script_hook_id_t hook_id, unsigned long elpased_ms);
+script_hook_result_t script_hook_timer_complete(script_hook_id_t hook_id, unsigned long elpased_ms, bool *timer_needs_stop);
 
 const char *script_run_state_to_string(script_run_t state);

@@ -1143,12 +1143,18 @@ void handle_timer(void)
     {
         // script hook timer complete
         script_hook_id_t hook_id = SCRIPT_HOOK_ID_TIMER_COMPLETE;
-        script_hook_result_t hook_result = script_hook_timer_complete(hook_id, elapsed_ms);
+        bool needs_stop = false;
+        script_hook_result_t hook_result = script_hook_timer_complete(hook_id, elapsed_ms, &needs_stop);
         if (hook_result == SCRIPT_HOOK_DROP)
         {
             tio_error_printf("Dropped hook due to fatal error");
+            timer_stop();
+            return;
         }
-        timer_stop();
+        if (needs_stop)
+        {
+            timer_stop();
+        }
     }
 }
 

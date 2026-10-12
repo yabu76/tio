@@ -550,7 +550,8 @@ SCRIPT API
              If the interval callback returns false, tio stops interval timer.
              Other Lua return types are treated as a success.
 
-             If the complete timeout occurs, tio stops interval and complete timer.
+             If the complete callback returns false, tio treats it as the next timer operation has been performed within the callback and continues the timer.
+             Other Lua return types are treated as the no continuous timer operation, so tio stops the interval and complete timer.
 
        tio.start_timer(interval, complete)
              Start tio's internal timer.

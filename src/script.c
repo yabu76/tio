@@ -41,6 +41,8 @@
 #include "timestamp.h"
 #include "termios.h"
 #include "version.h"
+#include "options.h"
+#include "configfile.h"
 
 #define MAX_BUFFER_SIZE 2000 // Maximum size of circular buffer
 #define READ_LINE_SIZE 4096 // read_line buffer length
@@ -1307,8 +1309,10 @@ script_hook_result_t script_hook_timer_interval(script_hook_id_t hook_id, unsign
     return SCRIPT_HOOK_OK;
 }
 
-script_hook_result_t script_hook_timer_complete(script_hook_id_t hook_id, unsigned long elapsed_ms)
+script_hook_result_t script_hook_timer_complete(script_hook_id_t hook_id, unsigned long elapsed_ms, bool *timer_needs_stop)
 {
+    *timer_needs_stop = true;
+
     if ((unsigned)hook_id >= SCRIPT_HOOK_ID_NUM)
     {
         return SCRIPT_HOOK_DROP;
@@ -1340,6 +1344,12 @@ script_hook_result_t script_hook_timer_complete(script_hook_id_t hook_id, unsign
         lua_pop(script_interp, 1);
         script_hook_cleanup(hook_id);
         return SCRIPT_HOOK_DROP;
+    }
+
+    if ( ! lua_toboolean(script_interp, -1) )
+    {
+        // If the hook's return value is false or nil, the timer should not be stopped.
+        *timer_needs_stop = false;
     }
 
     lua_pop(script_interp, 1);
