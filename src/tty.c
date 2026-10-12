@@ -1785,7 +1785,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 break;
 
             case KEY_L:
-                /* Clear screen using ANSI/VT100 escape code */
+                /* Reset and clear screen using ANSI/VT100 escape code */
                 printf("\033c");
                 break;
 

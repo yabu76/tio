@@ -61,8 +61,11 @@ static char script_init[] =
 "    WAIT_FOREVER = 0,\n"
 "    NOWAIT = -1,\n"
 "}\n"
-"tio.clear_screen = function()\n"
+"tio.reset_screen = function()\n"
 "    io.write(string.format('%cc',0x1b))\n"
+"end\n"
+"tio.clear_screen = function()\n"
+"    io.write(string.format('%c[H%c[2J', 0x1b, 0x1b))\n"
 "end\n"
 "tio.set = function(arg)\n"
 "    local dtr = arg.DTR or -1\n"
@@ -942,6 +945,22 @@ int api_exec_shell_command(lua_State *L)
     return 0;
 }
 
+// lua: tio.get_device_info()
+static int api_get_device_info(lua_State *L)
+{
+    lua_pushstring(L, option.target);
+    lua_pushstring(L, config.device);
+    return 2;
+}
+
+// lua: tio.get_statistics()
+static int api_get_statistics(lua_State *L)
+{
+    lua_pushinteger(L, tx_total);
+    lua_pushinteger(L, rx_total);
+    return 2;
+}
+
 // lua: tio.get_state()
 static int api_get_state(lua_State *L)
 {
@@ -1416,6 +1435,8 @@ static const struct luaL_Reg tio_lib[] =
     { "set_raw_mode_interactive", api_set_raw_mode_interactive},
     { "set_timestamp_mode", api_set_timestamp_mode},
     { "exec_shell_command", api_exec_shell_command},
+    { "get_device_info", api_get_device_info},
+    { "get_statistics", api_get_statistics},
     { "get_state", api_get_state},
     { "get_version", api_get_version},
 

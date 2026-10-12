@@ -488,6 +488,15 @@ SCRIPT API
 
              Returns the tio table on success or nil on error.
 
+       tio.echo(string)
+             Write string to local screen (=stdout) and log if log option is set.
+
+       tio.clear_screen()
+             Clear local screen.
+
+       tio.reset_screen()
+             Reset and clear local screen. Other screen settings, such as color settings, will also be cleared.
+
        tio.set_hook(hook_id, callback_or_nil)
              Register or unregister a hook callback for an event.
 
@@ -664,6 +673,14 @@ SCRIPT API
              It is equivalent to the key command ctrl-t R.
 
              The argument shell_commands is string.
+
+       tio.get_device_info()
+             Return the device target name and the connected device file path.
+
+       tio.get_statistics()
+             Returns statistical information.
+             The first return value is the number of bytes sent, and the second return value is the number of bytes received.
+             It is equivalent to the key command ctrl-t s.
 
        tio.get_state()
              Return the main state of tio as a integer.
