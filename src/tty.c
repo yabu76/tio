@@ -3825,53 +3825,49 @@ int tty_connect(void)
                         }
                     }
 
+                    char input_mapped[2] = {input_char, 0x00};
+                    size_t input_mapped_len = 1;
+
                     /* Map input character */
-                    if ((input_char == '\n') && (option.map_i_nl_crnl) && (!option.map_i_msb2lsb))
+                    if ( ((input_char == '\n') && (option.map_i_nl_crnl) && (!option.map_i_msb2lsb)) ||
+                         ((input_char == '\r') && (option.map_i_cr_crnl) && (!option.map_i_msb2lsb)) )
                     {
-                        printchar('\r');
-                        printchar('\n');
+                        input_mapped[0] = '\r';
+                        input_mapped[1] = '\n';
+                        input_mapped_len = 2;
+
                         if (option.timestamp || opt_log_timestamp)
-                        {
-                            do_timestamp = true;
-                        }
-                    }
-                    else if ((input_char == '\r') && (option.map_i_cr_crnl) && (!option.map_i_msb2lsb))
-                    {
-                        printchar('\r');
-                        printchar('\n');
-                        if (option.timestamp)
                         {
                             do_timestamp = true;
                         }
                     }
                     else if ((input_char == '\f') && (option.map_i_ff_escc) && (!option.map_i_msb2lsb))
                     {
-                        printchar('\e');
-                        printchar('c');
+                        input_mapped[0] = '\e';
+                        input_mapped[1] = 'c';
+                        input_mapped_len = 2;
                     }
-                    else
+
+                    // script hook on local send
+                    const char *lotx_buffer = input_mapped;
+                    size_t lotx_buffer_length = input_mapped_len;
+                    script_hook_id_t lotx_hook_id = SCRIPT_HOOK_ID_LOCAL_SEND;
+                    if (script_hook_enabled(lotx_hook_id))
                     {
-                        // script hook on local send
-                        const char *lotx_buffer = &input_char;
-                        size_t lotx_buffer_length = sizeof(input_char);
-                        script_hook_id_t lotx_hook_id = SCRIPT_HOOK_ID_LOCAL_SEND;
-                        if (script_hook_enabled(lotx_hook_id))
+                        script_hook_result_t hook_result = script_hook_filter(lotx_hook_id,
+                                                                              input_mapped,
+                                                                              input_mapped_len,
+                                                                              &lotx_buffer,
+                                                                              &lotx_buffer_length);
+                        if (hook_result == SCRIPT_HOOK_DROP)
                         {
-                            script_hook_result_t hook_result = script_hook_filter(lotx_hook_id,
-                                                                                  &input_char,
-                                                                                  sizeof(input_char),
-                                                                                  &lotx_buffer,
-                                                                                  &lotx_buffer_length);
-                            if (hook_result == SCRIPT_HOOK_DROP)
-                            {
-                                tio_error_printf("Dropped hook due to fatal error");
-                            }
+                            tio_error_printf("Dropped hook due to fatal error");
                         }
-                        for (size_t j = 0; j < lotx_buffer_length; j++)
-                        {
-                            /* Print received tty character to stdout */
-                            printchar(lotx_buffer[j]);
-                        }
+                    }
+                    for (size_t j = 0; j < lotx_buffer_length; j++)
+                    {
+                        /* Print received tty character to stdout */
+                        printchar(lotx_buffer[j]);
                     }
 
                     /* Write to log */
