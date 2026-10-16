@@ -382,6 +382,8 @@ bool socket_handle_input(fd_set *rdfs, const char **output_buffer, size_t *outpu
 
     for (int i = 0; i != MAX_SOCKET_CLIENTS; ++i)
     {
+        socket_read_buffer_length = 0;
+
         if (clientfds[i] != -1 && FD_ISSET(clientfds[i], rdfs))
         {
             int status = read(clientfds[i], socket_read_buffer, sizeof(socket_read_buffer));
