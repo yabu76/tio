@@ -101,6 +101,10 @@ if enable_rs485
   tio_c_args += '-DHAVE_RS485'
 endif
 
+if use_luajit and luajit_dep.found()
+  tio_c_args += '-DUSE_LUAJIT'
+endif
+
 tio_exe = executable('tio',
   tio_sources,
   c_args: tio_c_args,

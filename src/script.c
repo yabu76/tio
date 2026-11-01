@@ -25,6 +25,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#if defined(USE_LUAJIT)
+#include <luajit.h>
+#endif
 #include <lauxlib.h>
 #include <lualib.h>
 #include <sys/ioctl.h>
@@ -426,7 +429,7 @@ static int api_read(lua_State *L)
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
 
-#if LUA_VERSION_NUM >= 502 || defined(LUAJIT_VERSION)
+#if LUA_VERSION_NUM >= 502
     char *p = luaL_prepbuffsize(&buffer, size);
 #else
     if (size > LUAL_BUFFERSIZE)
