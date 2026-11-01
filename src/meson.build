@@ -8,6 +8,21 @@ config_h = configuration_data()
 config_h.set('BAUDRATE_CASES', baudrate_cases)
 configure_file(output: 'config.h', configuration: config_h)
 
+# Generate embedded lua script header
+lua = find_program('lua', required: true)
+
+script_init_h = custom_target(
+  'script-init-header',
+  input: 'script_init.lua',
+  output: 'script_init.h',
+  command: [
+    lua,
+    files('embed_lua.lua'),
+    '@INPUT@',
+    '@OUTPUT@',
+  ],
+)
+
 tio_sources = [
   'error.c',
   'log.c',
@@ -27,6 +42,7 @@ tio_sources = [
   'script.c',
   'fs.c',
   'readline.c',
+  script_init_h,
   version_h
 ]
 
