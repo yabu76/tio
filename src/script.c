@@ -47,8 +47,7 @@
 #include "options.h"
 #include "configfile.h"
 
-#define MAX_BUFFER_SIZE 2000 // Maximum size of circular buffer
-#define READ_LINE_SIZE 4096 // read_line buffer length
+#define READ_SIZE_MAX (1 * 1024 * 1024) // max bytes of the size argument of tio.read()
 
 static int device_fd = 0;
 static lua_State *script_interp = NULL;
@@ -421,40 +420,76 @@ static int api_read(lua_State *L)
     int size = luaL_checkinteger(L, 1);
     int timeout = luaL_optinteger(L, 2, 0); // ms, zero value means forever, negative value means nowait.
 
+    if (size > READ_SIZE_MAX)
+        return luaL_error(L, "size shoule be %d or less", READ_SIZE_MAX);
+
+    if (size <= 0)
+        return luaL_error(L, "size should be positive number");
+
     if (device_fd == 0)
-    {
         return luaL_error(L, "tty device not ready");
-    }
+
+#if LUA_VERSION_NUM >= 502
+    int to_read_max = size;
+#else
+    int to_read_max = LUAL_BUFFERSIZE;
+#endif
 
     luaL_Buffer buffer;
     luaL_buffinit(L, &buffer);
 
-#if LUA_VERSION_NUM >= 502
-    char *p = luaL_prepbuffsize(&buffer, size);
-#else
-    if (size > LUAL_BUFFERSIZE)
-        return luaL_error(L, "buffer overflow, max size is: %d", LUAL_BUFFERSIZE);
-    char *p = luaL_prepbuffer(&buffer);
-#endif
+    int total_read = 0;
+    bool is_first_read = true;
+    bool timed_out = false;
 
-    ssize_t ret = read_poll(device_fd, p, size, convert_to_timeout_c(timeout));
-    if (ret < 0)
-        return luaL_error(L, "%s", strerror(errno));
-
-    luaL_addsize(&buffer, ret);
-    luaL_pushresult(&buffer);
-
-    if (ret == 0)
+    while (total_read < size && ! timed_out)
     {
-        // On timeout return nil instead of an empty string
+        int to_read = size - total_read;
+        if (to_read > to_read_max)
+            to_read = to_read_max;
+
+#if LUA_VERSION_NUM >= 502
+        char *p = luaL_prepbuffsize(&buffer, to_read);
+#else
+        char *p = luaL_prepbuffer(&buffer); /* buffer_size = LUAL_BUFFERSIZE */
+#endif
+        int p_len = 0;
+
+        while (p_len < to_read && ! timed_out)
+        {
+            // 1st timeout is timeout, other timeouts are no-wait.
+            int current_timeout = is_first_read ? convert_to_timeout_c(timeout) : 0;
+            is_first_read = false;
+
+            ssize_t ret = read_poll(device_fd, p, to_read - p_len, current_timeout);
+            if (ret < 0)
+            {
+                luaL_addsize(&buffer, 0);
+                luaL_pushresult(&buffer);
+                return luaL_error(L, "%s", strerror(errno));
+            }
+            if (ret == 0)
+                timed_out = true;
+
+            p += ret;
+            p_len += ret;
+        }
+
+        luaL_addsize(&buffer, p_len);
+        total_read += p_len;
+    }
+
+    if (total_read <= 0)
+    {
+        // If no data is read, return nil instead of an empty string
+        luaL_pushresult(&buffer);
         lua_pop(L, 1);
         lua_pushnil(L);
-    }
-    else
-    {
-        maybe_echo(L);
+        return 1;
     }
 
+    luaL_pushresult(&buffer);
+    maybe_echo(L);
     return 1;
 }
 
@@ -472,6 +507,8 @@ static int api_readline(lua_State *L)
 
     luaL_buffinit(L, &b);
     luaL_prepbuffer(&b);
+
+    int total_read = 0;
     while (true)
     {
         int ret = read_poll(device_fd, &ch, 1, convert_to_timeout_c(timeout));
@@ -480,13 +517,7 @@ static int api_readline(lua_State *L)
             return luaL_error(L, "%s", strerror(errno));
 
         if (ret == 0)
-        {
-            luaL_pushresult(&b);
-            maybe_echo(L);
-            lua_pushnil(L);
-            lua_insert(L, -2);
-            return 2;
-        }
+            break;
 
         if (ch == '\n')
         {
@@ -496,7 +527,17 @@ static int api_readline(lua_State *L)
         }
 
         luaL_addchar(&b, ch);
+        total_read += 1;
+
+        if (total_read >= READ_SIZE_MAX)
+            break;
     }
+
+    luaL_pushresult(&b);
+    maybe_echo(L);
+    lua_pushnil(L);
+    lua_insert(L, -2);
+    return 2;
 }
 
 // lua: str = tio.inkey(mseconds)
@@ -1433,6 +1474,8 @@ static void script_set_consts(lua_State *L)
 {
     lua_getglobal(L, "tio");
     lua_getfield(L, -1, "C");
+
+    script_set_field_integer(L, "READ_SIZE_MAX", READ_SIZE_MAX);
 
     script_set_field_integer(L, "IM_NORMAL", INPUT_MODE_NORMAL);
     script_set_field_integer(L, "IM_HEX", INPUT_MODE_HEX);

@@ -450,30 +450,38 @@ SCRIPT API
 
        In addition to the standard Lua API tio makes the following functions available:
 
-       tio.expect(pattern, timeout)
+       tio.expect(pattern, timeout, remaining)
              Waits for the Lua pattern to match or timeout before continuing. Special characters must be escaped with '\\' or '%'.
              Timeout is in milliseconds, defaults to tio.C.WAIT_FOREVER(==0) meaning it will wait forever.
+             Remaining is a string that has already been read from a stream. This argument is optional.
 
-             On success, returns the captures from the pattern and all received data.
+             On success, returns the captures from the pattern, all received data, the start index and the end index.
              On timeout, returns nil and all received data.
 
-       tio.expects(pattern-table, timeout)
+       tio.expects(pattern-table, timeout, remaining)
              Waits for any of the multiple Lua patterns to match or timeout before continuing. Special characters must be escaped with '\\' or '%'.
              Timeout is in milliseconds, defaults to tio.C.WAIT_FOREVER(==0) meaning it will wait forever.
+             Remaining is a string that has already been read from a stream. This argument is optional.
 
-             On success, returns the index of the matched pattern, the captures from it and all received data.
+             If multiple patterns match, the one that completes its match earliest is selected. If matches complete at the same position, the pattern that appears earlier in the specified order is selected.
+
+             On success, returns the index of the matched pattern, the captures-table from it, all received data, the start index and the end index.
              On timeout, returns nil, nil and all received data.
 
        tio.read(size, timeout)
              Read up to size bytes from serial device. If timeout is tio.C.WAIT_FOREVER(==0) or not provided it will wait forever until data is ready to read.
              If the timeout is tio.C.NOWAIT (==-1), the function immediately reads as much data as possible from the serial device's RX buffer, up to a maximum of <size> bytes, and returns.
 
+             This function returns successfully without waiting for the timeout when it reads less data than the specified size. This behavior is similar to that of the POSIX read() system call.
+
              On success, returns read data as string. Also emits a single timestamp to stdout and log file per options.timestamp and options.log.
-             On timeout, returns nil and received data.
+             On timeout, returns nil.
 
        tio.readline(timeout)
              Read line from serial device. If timeout is tio.C.WAIT_FOREVER(==0) or not provided it will wait forever until data is ready to read.
              The line separater is LF (0x0a).
+
+             Timeout refers to the monitoring duration for incoming characters; it does not track the time elapsed since the start of the function's execution.
 
              On success, returns received line as string. Also emits a single timestamp to stdout and log file per options.timestamp and options.log.
              On timeout, returns nil and received data.

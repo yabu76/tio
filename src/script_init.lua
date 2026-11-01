@@ -8,7 +8,7 @@
 table.unpack = table.unpack or unpack
 
 tio.C = {
-    EXPECT_CLEANUP_READ_SIZE = 4096,
+    EXPECT_READ_SIZE = 4096,
     WAIT_FOREVER = 0,
     NOWAIT = -1,
 }
@@ -31,45 +31,95 @@ tio.set = function(arg)
     tio.line_set(dtr, rts, cts, dsr, cd, ri)
 end
 
-tio.expect = function(pattern, timeout)
+tio.check_pattern = function(pattern)
+    string.find("", pattern) -- invalid pattern raise exception.
+end
+
+tio.expect = function(pattern, timeout, remaining)
     local str = ''
+    tio.check_pattern(pattern)
     while true do
-        local astr = tio.read(tio.C.EXPECT_CLEANUP_READ_SIZE, tio.C.NOWAIT)
+        local astr
+        if remaining then
+            astr = remaining
+            remaining = nil
+        else
+            astr = tio.read(tio.C.EXPECT_READ_SIZE, tio.C.NOWAIT)
+        end
         local c = nil
-        if astr == nil then
+        if not astr then
             c = tio.read(1, timeout)
-            if c == nil then
+            if not c then
                 return nil, str
             end
         end
         str = table.concat{str, astr or '', c or ''}
-        local captured = { string.match(str, pattern) }
-        if #captured > 0 then
-            return table.unpack(captured), str
+        local captured = { string.find(str, pattern) }
+        if captured[2] then
+            local lpos = table.remove(captured, 1)
+            local rpos = table.remove(captured, 1)
+            if captured[1] then
+                return table.unpack(captured), str, lpos, rpos
+            else
+                return str:sub(lpos, rpos), str, lpos, rpos
+            end
         end
     end
 end
 
-tio.expects = function(patterns, timeout)
-    local str = ''
+tio.expects = function(patterns, timeout, remaining)
+    str = ''
     if type(patterns) ~= 'table' then
         patterns = { patterns }
     end
+    for _, pat in ipairs(patterns) do
+        tio.check_pattern(pat)
+    end
     while true do
-        local astr = tio.read(tio.C.EXPECT_CLEANUP_READ_SIZE, tio.C.NOWAIT)
+        local astr
+        if remaining then
+            astr = remaining
+            remaining = nil
+        else
+            astr = tio.read(tio.C.EXPECT_READ_SIZE, tio.C.NOWAIT)
+        end
         local c = nil
-        if astr == nil then
-            c = tio.read(1, timeout)
-            if c == nil then
+        if not astr then
+            c = tio.read(tio.C.EXPECT_READ_SIZE, timeout)
+            if not c then
                 return nil, nil, str
             end
         end
         str = table.concat{str, astr or '', c or ''}
+        local found_1st = nil
         for idx, pat in ipairs(patterns) do
-            local captured = { string.match(str, pat) }
-            if #captured > 0 then
-                return idx, captured, str
+            local captured = { string.find(str, pat) }
+            if captured[2] then
+                local need_update = false
+                if not found_1st then
+                    found_1st = {}
+                    need_update = true
+                else
+                    if captured[2] < found_1st.rpos then
+                        need_update = true
+                    end
+                end
+                if need_update then
+                    found_1st.lpos = table.remove(captured, 1)
+                    found_1st.rpos = table.remove(captured, 1)
+                    found_1st.idx = idx
+                    if captured[1] then
+                        found_1st.captured = captured
+                    else
+                        found_1st.captured = {
+                            str:sub(found_1st.lpos, found_1st.rpos)
+                        }
+                    end
+                end
             end
+        end
+        if found_1st then
+            return found_1st.idx, found_1st.captured, str, found_1st.lpos, found_1st.rpos
         end
     end
 end
@@ -87,5 +137,5 @@ tio.subcmd_error_println = function(fmt, ...)
 end
 
 tio.alwaysecho = true
-setmetatable(tio, tio)
 
+setmetatable(tio, tio)
