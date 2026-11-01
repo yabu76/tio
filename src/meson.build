@@ -9,7 +9,7 @@ config_h.set('BAUDRATE_CASES', baudrate_cases)
 configure_file(output: 'config.h', configuration: config_h)
 
 # Generate embedded lua script header
-lua = find_program('lua', required: true)
+lua = find_program('luajit', 'lua', 'lua5.4', 'lua5.3', 'lua5.2', 'lua5.1', required: true)
 
 script_init_h = custom_target(
   'script-init-header',
