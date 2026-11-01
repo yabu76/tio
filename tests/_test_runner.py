@@ -3,6 +3,7 @@
 # Common test infrastructure for tio e2e tests.
 
 #
+#   master                                            slave
 # ┌───────────┐                        ┌────────────┐
 # │      e2e_test.py     │                        │         tio            │
 # │                      │                        │                        │
@@ -159,8 +160,8 @@ class TioSession:
 
         self.serial_master, serial_slave = pty.openpty()
         self.stdin_master, stdin_slave = pty.openpty()
-        set_nonblocking(self.serial_master)
-        set_nonblocking(self.stdin_master)
+        # set_nonblocking(self.serial_master) -- python's outbound is blocking for buffering.
+        # set_nonblocking(self.stdin_master) -- python's outbound is blocking for buffering.
 
         script_path = os.path.join(self.tmp.name, "script.lua")
         with open(script_path, "w", encoding="utf-8") as script_file:
@@ -200,18 +201,19 @@ class TioSession:
 
         os.close(serial_slave)
         os.close(stdin_slave)
-        set_nonblocking(self.proc.stdout.fileno())
+        # set_nonblocking(self.proc.stdout.fileno()) -- tio's stdout is blocking for buffering.
 
         if socket_path is not None:
             self.client = connect_unix_socket(socket_path)
             time.sleep(0.2)
+
+        self.drain_stdout() # cleaning tio's stdout before receiving 'ready'
 
         if ready is not None:
             wait_for_match(
                 lambda timeout: read_fd(self.serial_master, timeout),
                 ready,
             )
-        self.drain_stdout()
 
     def wait_stdout(self, expected, timeout=3.0):
         progress("WAIT stdout: %r" % expected)
@@ -259,8 +261,9 @@ class TioSession:
         self.serial_rx += read_fd(self.serial_master, 0.1)
         self.serial_rx = b""
 
-    def write_serial(self, data):
-        progress("TX serial: %r" % data)
+    def write_serial(self, data, verbose_off=True):
+        if not verbose_off:
+            progress("TX serial: %r" % data)
         os.write(self.serial_master, data)
 
     def wait_socket(self, expected, timeout=3):
