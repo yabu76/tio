@@ -465,29 +465,59 @@ Write string to serial device with input-editing, output-mapping and output-dela
 
 Returns the tio table on success or nil on error.
 
-#### `tio.rx_filter(callback_or_nil)`
+#### `tio.set_hook(hook_id, callback_or_nil)`
 
-Register a receive filter callback for bytes read from the serial device. The
-callback receives each RX chunk as a Lua string before tio applies normal RX
-processing.
+Register or unregister a hook callback for an event.
 
-If the callback returns a string, tio processes that string as if it had been
-read from the serial device, including timestamping, input mappings, display,
-logging, and socket forwarding. If it returns `nil`, tio drops the chunk. Lua
-strings are byte strings, so filters may return embedded NUL bytes and arbitrary
-binary data.
+Hook IDs for data Filter: tio.C.IO_RECEIVE, tio.C.IO_SEND, tio.C.LOCAL_RECEIVE, tio.C.LOCAL_SEND, tio.C.SOCKET_RECEIVE, tio.C.SOCKET_SEND
 
-Only the serial RX path is filtered; keyboard, stdin, socket-client input, and
-`tio.write` output to the serial device are unchanged.
+Hook IDs for other event: tio.C.SIGNAL_CHANGE, tio.C.TIMER_INTERVAL, tio.C.TIMER_COMPLETE
 
-The Lua state remains alive while a filter is registered, so callback closure
-state persists across RX chunks. Scripts run while a filter is active share that
-same Lua state. Call `tio.rx_filter(nil)` to disable the filter.
+The data filter hooks use the following callback signature:
+  function(data)
 
-If the callback raises an error or returns a value other than a Lua string or
-`nil`, tio reports a warning, disables the filter, and passes the current chunk
-through unchanged. Other Lua types, including numbers, are not accepted as
-strings.
+The callback receives each data chunk as a Lua string before tio performs its normal processing.
+
+If the callback returns a string, tio processes the returned string as the data chunk instead of the original data. If the callback returns an empty string, tio drops the data chunk.
+
+Lua strings are byte strings. A callback may therefore return embedded NUL bytes and arbitrary binary data.
+
+If the callback raises an error or returns nil, tio reports a warning, disables the hook, and passes the current data chunk through unchanged. Other Lua return types, including numbers, are not accepted.
+
+The signal change hook uses the following callback signature:
+  function(signal_bmap_now, signal_bmap_prev)
+
+signal_bmap_now is the current serial signal state, and signal_bmap_prev is the previous state.
+
+If the callback raises an error or returns nil, tio reports a warning, disables the hook.
+Other Lua return types are treated as a success.
+
+The timer hook uses the following callback signature:
+  function(elapsed_time_ms)
+
+elapsed_time_ms is the elapsed time in milleseconds.
+
+If the callback raises an error or returns nil, tio reports a warning, disables the hook.
+If the interval callback returns false, tio stops interval timer.
+Other Lua return types are treated as a success.
+
+If the complete callback returns false, tio treats it as the next timer operation has been performed within the callback and continues the timer.
+Other Lua return types are treated as the no continuous timer operation, so tio stops the interval and complete timer.
+
+#### `tio.start_timer(interval, complete)`
+
+Start tio's internal timer.
+When an interval timeout occurs, if a Lua function has been set using `tio.set_hook(tio.C.HK_TIMER_INTERVAL)`, that function is called.
+
+When a completion timeout occurs, if a Lua function has been set using `tio.set_hook(tio.C.HK_TIMER_COMPLETE)`, that function is called.
+The timer stops regardless of whether a Lua function has been specified.
+
+Interval and complete is specified in milliseconds, tio.C.NOWAIT, tio.C.WAIT_FOREVER or nil.
+nil is equivalent to tio.C.WAIT_FOREVER.
+
+#### `tio.stop_timer()`
+
+Stop tio's internal timer.
 
 #### `tio.send(file, protocol)`
 
