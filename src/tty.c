@@ -192,6 +192,7 @@ unsigned long rx_total = 0, tx_total = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
 static bool tty_tcsetattr_first = true;
+static bool line_control_enable = true;
 static void (*printchar)(char c);
 static int device_fd;
 static char hex_chars[2];
@@ -322,13 +323,16 @@ int tty_tcsetattr(int fd)
     }
 
 #if defined(__CYGWIN__)
-    int line_state;
+    int line_state = 0;
 
     /* save line state for buggy tcsetattr */
-    if (ioctl(fd, TIOCMGET, &line_state) < 0)
+    if (line_control_enable)
     {
-        tio_warning_printf("Could not get line state (%s)", strerror(errno));
-        return -1;
+        if (ioctl(fd, TIOCMGET, &line_state) < 0)
+        {
+            tio_warning_printf("Could not get line state (%s)", strerror(errno));
+            return -1;
+        }
     }
 #endif
 
@@ -362,26 +366,29 @@ int tty_tcsetattr(int fd)
 
 #if defined(__CYGWIN__)
     /* restore line state for buggy tcsetattr */
-    if (option.flow == FLOW_HARD)
+    if (line_control_enable)
     {
-        /* hardware flow control */
-        /* touch DTR only, don't touch RTS */
-        int tiocm_dtr = TIOCM_DTR;
-        int action = (line_state & TIOCM_DTR) ? TIOCMBIS /* DTR=LOW */ : TIOCMBIC /* DTR=HIGH */ ;
-        if (ioctl(fd, action, &tiocm_dtr) < 0)
+        if (option.flow == FLOW_HARD)
         {
-            tio_warning_printf("Could not set line state (%s)", strerror(errno));
-            ret = -1;
+            /* hardware flow control */
+            /* touch DTR only, don't touch RTS */
+            int tiocm_dtr = TIOCM_DTR;
+            int action = (line_state & TIOCM_DTR) ? TIOCMBIS /* DTR=LOW */ : TIOCMBIC /* DTR=HIGH */ ;
+            if (ioctl(fd, action, &tiocm_dtr) < 0)
+            {
+                tio_warning_printf("Could not set line state (%s)", strerror(errno));
+                ret = -1;
+            }
         }
-    }
-    else
-    {
-        /* not hardware flow control */
-        /* restore DTR and RTS at the same time */
-        if (ioctl(fd, TIOCMSET, &line_state) < 0)
+        else
         {
-            tio_warning_printf("Could not set line state (%s)", strerror(errno));
-            ret = -1;
+            /* not hardware flow control */
+            /* restore DTR and RTS at the same time */
+            if (ioctl(fd, TIOCMSET, &line_state) < 0)
+            {
+                tio_warning_printf("Could not set line state (%s)", strerror(errno));
+                ret = -1;
+            }
         }
     }
 #endif
@@ -957,6 +964,13 @@ static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int d
 
 static bool tty_line_changed(int fd, int *lstat_now, int *lstat_before)
 {
+    if ( ! line_control_enable )
+    {
+        *lstat_now = 0;
+        *lstat_before = 0;
+        return false;
+    }
+
     static bool line_state_valid = false;
     static int line_state;
     const int LINE_STATE_INPUT_MASK = (TIOCM_CTS | TIOCM_DSR | TIOCM_CD | TIOCM_RI);
@@ -3482,6 +3496,17 @@ int tty_connect(void)
     {
         tio_error_printf_silent("Could not get port settings (%s)", strerror(errno));
         goto error_tcgetattr;
+    }
+
+    /* Check line control ability */
+    line_control_enable = true;
+    int dummy;
+    if (ioctl(device_fd, TIOCMGET, &dummy) < 0)
+    {
+        if (errno == ENOTTY || errno == EINVAL)
+        {
+            line_control_enable = false;
+        }
     }
 
 #ifdef HAVE_IOSSIOSPEED
