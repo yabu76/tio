@@ -4,7 +4,6 @@ import time
 
 from _test_runner import TioSession
 
-
 def test_expect_match():
     script = """
 tio.alwaysecho = false
@@ -35,11 +34,13 @@ def test_expect_timeout_returns_received_data():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local value, data, first, last = tio.expect("NEVER", 150)
 print("TIMEOUT:" .. tostring(value == nil) .. ":" .. data .. ":" .. tostring(first == nil) .. ":" .. tostring(last == nil))
 tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"abc")
         session.wait_stdout(b"TIMEOUT:true:abc:true:true")
 
@@ -48,11 +49,13 @@ def test_expect_timeout_with_empty_data():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local value, data = tio.expect("NEVER", 100)
 print("EMPTY_TIMEOUT:" .. tostring(value == nil) .. ":" .. tostring(data == ""))
 tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.wait_stdout(b"EMPTY_TIMEOUT:true:true")
 
 
@@ -200,11 +203,13 @@ def test_expects_timeout_returns_received_data():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local index, captures, data, first, last = tio.expects({"ERROR", "OK"}, 150)
 print("TIMEOUT:" .. tostring(index == nil) .. ":" .. tostring(captures == nil) .. ":" .. data .. ":" .. tostring(first == nil) .. ":" .. tostring(last == nil))
 tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"hello")
         session.wait_stdout(b"TIMEOUT:true:true:hello:true:true")
 
@@ -296,11 +301,13 @@ def test_expects_empty_pattern_table_times_out():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local index, captures, data = tio.expects({}, 100)
 print("EMPTY_PATTERNS:" .. tostring(index == nil) .. ":" .. tostring(captures == nil) .. ":" .. tostring(data == ""))
 tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.wait_stdout(b"EMPTY_PATTERNS:true:true:true")
 
 

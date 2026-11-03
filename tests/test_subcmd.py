@@ -9,9 +9,9 @@ tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     tio.subcmd_warning_println("warning %d", 42)
     return data
 end)
+tio.write("READY")
 '''
-
-    with TioSession(script, mute=False) as session:
+    with TioSession(script, ready=b"READY", mute=False) as session:
         session.write_serial(b"x")
         session.wait_stdout(b"warning 42")
 
@@ -31,9 +31,9 @@ tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
 
     return data
 end)
+tio.write("READY")
 '''
-
-    with TioSession(script, mute=False) as session:
+    with TioSession(script, ready=b"READY", mute=False) as session:
         session.write_serial(b"x")
         session.wait_stdout(b"ERROR_PRINTLN_OK")
 

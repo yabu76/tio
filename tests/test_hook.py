@@ -6,7 +6,15 @@ import tempfile
 from _test_runner import TioSession
 
 def test_hook_iorecv_default_behavior_unchanged():
-    with TioSession("-- no rx filter registered") as session:
+    script = """
+tio.alwaysecho = false
+tio.write("READY")
+local go = tio.read(2, 1000)
+tio.alwaysecho = true
+-- Echo back on receiving here.
+"""
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"A\x00B")
         session.wait_stdout(b"A\x00B")
 
@@ -17,9 +25,12 @@ tio.alwaysecho = false
 tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     return "X\\0Y"
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script) as session:
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"abc")
         session.wait_stdout(b"X\x00Y")
 
@@ -28,11 +39,14 @@ def test_hook_iorecv_drop_chunk():
     script = """
 tio.alwaysecho = false
 tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
-    return nil
+    return ""
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script) as session:
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"drop")
         assert session.read_stdout(0.4) == b""
 
@@ -48,9 +62,12 @@ tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     end
     return "filtered"
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script, mute=False) as session:
+    with TioSession(script, ready=b"READY", mute=False) as session:
+        session.write_serial(b"GO")
         session.write_serial(b"first")
         # output = session.wait_stdout(b"first")
         output = session.wait_stdout(rb".*")
@@ -68,9 +85,12 @@ tio.alwaysecho = false
 tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     return 123
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script, mute=False) as session:
+    with TioSession(script, ready=b"READY", mute=False) as session:
+        session.write_serial(b"GO")
         session.write_serial(b"first")
         output = session.wait_stdout(b"first")
         assert b"returned number" in output
@@ -89,9 +109,12 @@ tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     return "filtered"
 end)
 tio.set_hook(tio.C.HK_IO_RECEIVE, nil)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script) as session:
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"raw")
         output = session.wait_stdout(b"raw")
         assert b"filtered" not in output
@@ -106,9 +129,12 @@ end)
 tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     return "new"
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script) as session:
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"raw")
         output = session.wait_stdout(b"new")
         assert b"old" not in output
@@ -122,9 +148,12 @@ tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     count = count + 1
     return tostring(count) .. ":" .. data
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script) as session:
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"A")
         session.wait_stdout(b"1:A")
 
@@ -140,9 +169,12 @@ tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     tio.set_hook(tio.C.HK_IO_RECEIVE, nil)
     return (data:gsub("raw", "once"))
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
-    with TioSession(script) as session:
+    with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"raw")
         session.wait_stdout(b"once")
 
@@ -158,6 +190,8 @@ tio.alwaysecho = false
 tio.set_hook(tio.C.HK_IO_RECEIVE, function(data)
     return (data:gsub("raw", "filtered"))
 end)
+tio.write("READY")
+local go = tio.read(2, 1000)
 tio.alwaysecho = true
 """
     with tempfile.TemporaryDirectory() as tmp:
@@ -165,7 +199,8 @@ tio.alwaysecho = true
         log_path = os.path.join(tmp, "tio.log")
         log = b""
 
-        with TioSession(script, log_path=log_path, socket_path=socket_path) as session:
+        with TioSession(script, ready=b"READY", log_path=log_path, socket_path=socket_path) as session:
+            session.write_serial(b"GO")
             session.write_serial(b"raw")
             session.wait_stdout(b"filtered")
             session.wait_socket(b"filtered")

@@ -2,16 +2,22 @@
 
 from _test_runner import TioSession
 
+import sys
+import time
+
+is_msys_runtime = (sys.platform == "msys" or sys.platform == "cygwin")
 
 def test_read_exact_size():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local data = tio.read(5, 1000)
 print("READ_EXACT:" .. tostring(data == "hello") .. ":" .. tostring(#data))
 tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"hello")
         session.wait_stdout(b"READ_EXACT:true:5")
 
@@ -170,11 +176,13 @@ def test_readline_timeout_returns_partial_data():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local line, partial = tio.readline(150)
 print("LINE_TIMEOUT:" .. tostring(line == nil) .. ":" .. tostring(partial == "partial"))
 tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
+        session.write_serial(b"GO")
         session.write_serial(b"partial")
         session.wait_stdout(b"LINE_TIMEOUT:true:true")
 
@@ -211,6 +219,7 @@ def test_readline_size_limit():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
+local go = tio.read(2, 1000)
 local line, partial = tio.readline(1000)
 print("READLINE_LIMIT:"
     .. tio.C.READ_SIZE_MAX .. ":"
@@ -220,12 +229,16 @@ tio.alwaysecho = true
 """
     with TioSession(script, ready=b"READY") as session:
         cmax = 1024 * 1024  # tio.C.READ_SIZE_MAX
-        send_chunk = b"x" * 1024
+        send_chunk = b"x" * 500
+        session.write_serial(b"GO")
         for _ in range(cmax // len(send_chunk)):
             session.write_serial(send_chunk, verbose_off=True)
+            if is_msys_runtime:
+                time.sleep(0.02)
+        for _ in range(cmax % len(send_chunk)):
+            session.write_serial(b".", verbose_off=True)
         expect_bstr = f"READLINE_LIMIT:{cmax}:true:true".encode()
         session.wait_stdout(expect_bstr)
-
 
 READ_TESTS = [
     test_read_exact_size,
@@ -244,3 +257,11 @@ READ_TESTS = [
     test_readline_invalid_timeout_type,
     test_readline_size_limit,
 ]
+
+#
+# Due to its underlying architecture, the PTY in MSYS2 has a slow communication
+# speed (43 kbps in my environment). Therefore, tests that involve handling large
+# amounts of data are excluded from the MSYS2 environment.
+#
+if is_msys_runtime:
+    READ_TESTS.remove(test_readline_size_limit)
