@@ -356,11 +356,11 @@ int socket_add_fds(fd_set *rdfs, bool connected)
     return maxfd;
 }
 
-bool socket_handle_input(fd_set *rdfs, const char **output_buffer, size_t *output_buffer_length)
+void socket_handle_accept(fd_set *rdfs)
 {
     if (!option.socket)
     {
-        return false;
+        return;
     }
 
     if (FD_ISSET(sockfd, rdfs))
@@ -375,6 +375,14 @@ bool socket_handle_input(fd_set *rdfs, const char **output_buffer, size_t *outpu
                 break;
             }
         }
+    }
+}
+
+bool socket_handle_input(fd_set *rdfs, const char **output_buffer, size_t *output_buffer_length)
+{
+    if (!option.socket)
+    {
+        return false;
     }
 
     char *edit_char = socket_read_edit_buffer;

@@ -3215,6 +3215,7 @@ void tty_wait_for_device(void)
                 }
                 const char *output_buffer = NULL;
                 size_t output_buffer_length = 0;
+                socket_handle_accept(&rdfs);
                 socket_handle_input(&rdfs, &output_buffer, &output_buffer_length);
                 UNUSED(output_buffer);
                 UNUSED(output_buffer_length);
@@ -3645,6 +3646,12 @@ int tty_connect(void)
         struct timeval tv_timeout;
         status = select(maxfd + 1, &rdfs, NULL, NULL,
                         (timer_is_alive() && timer_get_remain(&tv_timeout)) ? &tv_timeout : NULL);
+
+        /* socket acceptance to ensure that writes to the socket can succeed on the first iteration of this loop */
+        if (status > 0)
+        {
+            socket_handle_accept(&rdfs);
+        }
 
         /* check line signal and loop timer */
         if (status >= 0)
