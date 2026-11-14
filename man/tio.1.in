@@ -301,7 +301,7 @@ must type \fI0a\fR or \fI0A\fR. Whitespace characters are ignored.
 
 In line input mode input characters are sent when you press enter.
 You can use the cursor keys and backspace key to edit the line and recall command
-history. The history is maintained while tio is running.
+history.
 
 Default value is "normal".
 
@@ -436,11 +436,11 @@ Do not save line-input-hisoty on exit and load on startup.
 History files are the following:
 
 .PP
-.I $HOME/.tio_history_<<connection_name>>
+.I $HOME/.tio_history/<<connection_name>>
 .PP
-.I $HOME/.tio_history_<<connection_name>>_subcmd
+.I $HOME/.tio_history/<<connection_name>>_subcmd
 .PP
-.I $HOME/.tio_history_<<connection_name>>_repl
+.I $HOME/.tio_history/<<connection_name>>_repl
 
 
 .TP

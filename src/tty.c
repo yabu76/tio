@@ -211,6 +211,7 @@ static size_t listing_device_name_length_max = 0;
 static readline_t *readline_ctx = NULL;
 static readline_t *subcmd_readline_ctx = NULL;
 static readline_t *script_repl_readline_ctx = NULL;
+static char history_dir[PATH_MAX];
 
 static void optional_local_echo(char c)
 {
@@ -3365,47 +3366,93 @@ void forward_to_tty(int fd, char output_char)
     }
 }
 
-static int make_history_file_path(char *buf, int buf_size, const char *deco)
+static void create_history_dir(void)
 {
-    int len;
     char *home = getenv("HOME");
+    int len;
+
     if (!home)
     {
         tio_error_printf("Could not specify home directory from HOME environment variable.");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
-    if (deco && *deco != '\0')
-        snprintf(buf, buf_size, "%s/.tio_history_%s_%s", home, option.target, deco);
-    else
-        snprintf(buf, buf_size, "%s/.tio_history_%s", home, option.target);
+    // Construct history directory path
+    len = snprintf(history_dir, sizeof(history_dir),
+                   "%s/.tio_history", home);
 
-    for (len = strlen(home) + 1; buf[len] == '\0' || len < buf_size; len++)
+    if (len < 0 || (size_t)len >= sizeof(history_dir))
     {
-        if (buf[len] == '/')
-            buf[len] = '_';
+        tio_error_printf("History directory path is too long.");
+        exit(EXIT_FAILURE);
     }
-    return len;
+
+    // Create history directory if it does not exist
+    if (mkdir(history_dir, 0700) < 0 && errno != EEXIST)
+    {
+        tio_error_printf("Could not create history directory (%s)", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    // Make sure the history directory exists and is a directory
+    struct stat st;
+    if (stat(history_dir, &st) < 0 || !S_ISDIR(st.st_mode))
+    {
+        tio_error_printf("History path is not a directory.");
+        exit(EXIT_FAILURE);
+    }
 }
 
+static void make_history_file_path(char *buf, int buf_size, const char *deco)
+{
+    int len;
+    int idx;
+
+    if (deco && *deco != '\0')
+        len = snprintf(buf, buf_size, "%s/%s_%s", history_dir, option.target, deco);
+    else
+        len = snprintf(buf, buf_size, "%s/%s", history_dir, option.target);
+
+    if (len < 0 || len >= buf_size)
+    {
+        tio_error_printf("History file path is too long.");
+        exit(EXIT_FAILURE);
+    }
+
+    // Replace '/' in the target name with '_'
+    for (idx = strlen(history_dir) + 1; buf[idx] == '\0' || idx < buf_size; idx++)
+    {
+        if (buf[idx] == '/')
+            buf[idx] = '_';
+    }
+}
 
 void tty_init(void)
 {
     // Initialize readline like history
-    char history_file_path[PATH_MAX];
 
-    if (make_history_file_path(history_file_path, PATH_MAX, "") > 0)
+    if (!option.no_line_history_save)
     {
+        char history_file_path[PATH_MAX];
+
+        create_history_dir();
+
+        make_history_file_path(history_file_path, PATH_MAX, "");
         readline_ctx = readline_create(history_file_path);
-    }
-    if (make_history_file_path(history_file_path, PATH_MAX, "subcmd") > 0)
-    {
+
+        make_history_file_path(history_file_path, PATH_MAX, "subcmd");
         subcmd_readline_ctx = readline_create(history_file_path);
-    }
-    if (make_history_file_path(history_file_path, PATH_MAX, "repl") > 0)
-    {
+
+        make_history_file_path(history_file_path, PATH_MAX, "repl");
         script_repl_readline_ctx = readline_create(history_file_path);
     }
+    else
+    {
+        readline_ctx = readline_create("");
+        subcmd_readline_ctx = readline_create("");
+        script_repl_readline_ctx = readline_create("");
+    }
+
 
     if (readline_ctx == NULL || subcmd_readline_ctx == NULL || script_repl_readline_ctx == NULL)
     {

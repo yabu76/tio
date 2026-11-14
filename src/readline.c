@@ -23,6 +23,9 @@
 #include "print.h"
 #include "misc.h"
 #include <assert.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #define RL_LINE_LENGTH_MAX PATH_MAX
 
@@ -146,12 +149,31 @@ void readline_load(readline_t *rl)
 
 void readline_save(readline_t *rl)
 {
+    if (rl->history_filename[0] == '\0')
+        return;
+
     if (rl->history_count == 0)
         return;
 
-    FILE *fp = fopen(rl->history_filename, "w");
+    int fd = open(rl->history_filename, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+    {
+        tio_warning_printf("Could not open history file %s", rl->history_filename);
+        return;
+    }
+
+    // If the existing history file does not have 0600 permission, this tries to change it.
+    if (fchmod(fd, S_IRUSR | S_IWUSR) < 0)
+    {
+        close(fd);
+        tio_warning_printf("Could not change history file permision %s", rl->history_filename);
+        return;
+    }
+
+    FILE *fp = fdopen(fd, "w");
     if (!fp)
     {
+        close(fd);
         tio_warning_printf("Could not save history %s", rl->history_filename);
         return;
     }
