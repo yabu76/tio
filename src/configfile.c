@@ -315,6 +315,7 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
         string = NULL;
     }
     config_get_bool(key_file, group, "mute", &option.mute);
+    config_get_bool(key_file, group, "no-line-history-save", &option.no_line_history_save);
     config_get_string(key_file, group, "script-init-file", &option.script_init_filename, NULL);
     config_get_string(key_file, group, "script", &option.script, NULL);
     config_get_string(key_file, group, "script-file", &option.script_filename, NULL);
