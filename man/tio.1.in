@@ -89,6 +89,12 @@ The default pulse duration for each line is 100 ms.
 .RE
 
 .TP
+.BR "    \-\-send\-break\-duration " \fI<duration>
+
+Set the break duration [ms] (default: 0).
+If the duration is zero, break duration is system dependent value 250ms-500ms (ref. tcsendbreak(3)).
+
+.TP
 .BR "\-a, \-\-auto\-connect new|latest|direct"
 
 Automatically connect to serial device according to one of the following
@@ -723,8 +729,10 @@ Sleep for seconds.
 .IP "\fBtio.msleep(ms)"
 Sleep for milliseconds.
 
-.IP "\fBtio.send_break()"
-Send break signal.
+.IP "\fBtio.send_break(ms)"
+Send break signal for milliseconds.
+If ms is nil or omitted, break duration is option or configuration value of send-break-duration.
+If ms is zero, break duration is system dependent value 250ms-500ms (ref. tcsendbreak(3)).
 It is equivalent to the key command ctrl-t b.
 
 .IP "\fBtio.line_get()"
@@ -983,6 +991,8 @@ Set output line delay
 Set trigger character of output line delay
 .IP "\fBline-pulse-duration"
 Set line pulse duration
+.IP "\fBsend-break-duration"
+Set send break duration
 .IP "\fBno-reconnect"
 Do not reconnect
 .IP "\fBlog"

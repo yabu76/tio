@@ -102,6 +102,7 @@ void tty_input_thread_wait_ready(void);
 void tty_input_thread_pause(void);
 void tty_input_thread_resume(void);
 void tty_line_set(int fd, tty_line_config_t line_config[]);
+int tty_send_break(int fd, int duration_us);
 void tty_search(void);
 GList *tty_search_for_serial_devices(void);
 void forward_to_tty(int fd, char output_char);

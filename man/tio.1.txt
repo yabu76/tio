@@ -70,6 +70,11 @@ OPTIONS
 
               The default pulse duration for each line is 100 ms.
 
+           --send-break-duration <duration>
+
+             Set the break duration [ms] (default: 0).
+             If the duration is zero, break duration is system dependent value 250ms-500ms (ref. tcsendbreak(3)).
+
        -a, --auto-connect new|latest|direct
 
               Automatically connect to serial device according to one of the following strategies:
@@ -617,8 +622,10 @@ SCRIPT API
        tio.msleep(ms)
              Sleep for milliseconds.
 
-       tio.send_break()
-             Send break signal.
+       tio.send_break(ms)
+             Send break signal for milliseconds.
+             If ms is nil or omitted, break duration is option or configuration value of send-break-duration.
+             If ms is zero, break duration is system dependent value 250ms-500ms (ref. tcsendbreak(3)).
              It is equivalent to the key command ctrl-t b.
 
        tio.line_get()
@@ -858,6 +865,8 @@ CONFIGURATION FILE
        output-line-delay-char   Set trigger character of output line delay
 
        line-pulse-duration      Set line pulse duration
+
+       send-break-duration      Set send break duration
 
        no-reconnect             Do not reconnect
 

@@ -47,6 +47,7 @@ enum opt_t
     OPT_LOG_TIMESTAMP_FORMAT,
     OPT_OUTPUT_LINE_DELAY_CHAR,
     OPT_LINE_PULSE_DURATION,
+    OPT_SEND_BREAK_DURATION,
     OPT_RS485,
     OPT_RS485_CONFIG,
     OPT_ALERT,
@@ -88,6 +89,7 @@ struct option_t option =
     .dsr_pulse_duration = 100,
     .dcd_pulse_duration = 100,
     .ri_pulse_duration = 100,
+    .send_break_duration_us = SEND_BREAK_DURATION_DEFAULT * 1000,
     .no_reconnect = false,
     .no_tty_restore = false,
     .auto_connect = AUTO_CONNECT_DIRECT,
@@ -165,6 +167,7 @@ void option_print_help(char *argv[])
     printf("  -O, --output-line-delay <ms>           Output line delay (default: 0)\n");
     printf("      --output-line-delay-char cr|lf     Output line delay trigger character (default: lf)\n");
     printf("      --line-pulse-duration <duration>   Set line pulse duration\n");
+    printf("      --send-break-duration <duration>   Set send break duration\n");
     printf("  -a, --auto-connect new|latest|direct   Automatic connect strategy (default: direct)\n");
     printf("      --exclude-devices <pattern>        Exclude devices by pattern\n");
     printf("      --exclude-drivers <pattern>        Exclude drivers by pattern\n");
@@ -219,6 +222,52 @@ int option_string_to_integer(const char *string, int *value, const char *desc, i
 
     errno = 0;
     val = strtol(string, &end_token, 10);
+    if ((errno != 0) || (*end_token != 0))
+    {
+        if (desc != NULL)
+        {
+            tio_error_print("Invalid %s '%s'", desc, string);
+            exit(EXIT_FAILURE);
+        }
+        else
+        {
+            tio_error_print("Invalid digit '%s'", string);
+            exit(EXIT_FAILURE);
+        }
+        return -1;
+    }
+    else
+    {
+        if ((val < min) || (val > max))
+        {
+            if (desc != NULL)
+            {
+                tio_error_print("Invalid %s '%s'", desc, string);
+                exit(EXIT_FAILURE);
+            }
+            else
+            {
+                tio_error_print("Invalid digit '%s'", string);
+                exit(EXIT_FAILURE);
+            }
+            return -1;
+        }
+        else
+        {
+            *value = val;
+        }
+    }
+
+    return 0;
+}
+
+int option_string_to_double(const char *string, double *value, const char *desc, double min, double max)
+{
+    double val;
+    char *end_token;
+
+    errno = 0;
+    val = strtod(string, &end_token);
     if ((errno != 0) || (*end_token != 0))
     {
         if (desc != NULL)
@@ -939,6 +988,23 @@ void options_print()
                                                                             option.dcd_pulse_duration,
                                                                             option.ri_pulse_duration);
     // clang-format on
+    if (option.send_break_duration_us != SEND_BREAK_DURATION_DEFAULT * 1000)
+    {
+        if ((option.send_break_duration_us % 1000) == 0)
+        {
+            tio_printf(" Send break duration: %d", option.send_break_duration_us / 1000);
+        }
+        else
+        {
+#if SEND_BREAK_DURATION_ROUNDING_UNIT_US == 100
+            tio_printf(" Send break duration: %.1f", (double)option.send_break_duration_us / 1000);
+#elif SEND_BREAK_DURATION_ROUNDING_UNIT_US == 10
+            tio_printf(" Send break duration: %.2f", (double)option.send_break_duration_us / 1000);
+#else
+            tio_printf(" Send break duration: %.3f", (double)option.send_break_duration_us / 1000);
+#endif
+        }
+    }
     tio_printf(" Input mode: %s", option_input_mode_to_string(option.input_mode));
     tio_printf(" Output mode: %s", option_output_mode_to_string(option.output_mode));
     tio_printf(" Raw (non-interactive): %s", option_raw_to_string(option.raw));
@@ -1014,6 +1080,7 @@ void options_parse(int argc, char *argv[])
             {"output-line-delay" ,   required_argument, 0, 'O'                     },
             {"output-line-delay-char", required_argument, 0, OPT_OUTPUT_LINE_DELAY_CHAR},
             {"line-pulse-duration",  required_argument, 0, OPT_LINE_PULSE_DURATION },
+            {"send-break-duration",  required_argument, 0, OPT_SEND_BREAK_DURATION },
             {"auto-connect",         required_argument, 0, 'a'                     },
             {"exclude-devices",      required_argument, 0, OPT_EXCLUDE_DEVICES     },
             {"exclude-drivers",      required_argument, 0, OPT_EXCLUDE_DRIVERS     },
@@ -1117,6 +1184,13 @@ void options_parse(int argc, char *argv[])
 
             case OPT_LINE_PULSE_DURATION:
                 option_parse_line_pulse_duration(optarg);
+                break;
+
+            case OPT_SEND_BREAK_DURATION:
+                double send_break_duration_ms = 0;
+                option_string_to_double(optarg, &send_break_duration_ms, "send break duration", 0, SEND_BREAK_DURATION_MAX);
+                printf("%f\r\n", send_break_duration_ms);
+                option.send_break_duration_us = ROUND_UP((int)(send_break_duration_ms * 1000), SEND_BREAK_DURATION_ROUNDING_UNIT_US);
                 break;
 
             case 'a':

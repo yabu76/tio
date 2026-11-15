@@ -50,6 +50,12 @@ typedef enum
     RAW_ON_NODELAY,
 } raw_t;
 
+/* Send-break-duration constatns are in milliseconds.
+   A value of 0 is treated as a system-dependent duration (250ms–500ms) ref:tcsendbreak(3) */
+#define SEND_BREAK_DURATION_DEFAULT 0
+#define SEND_BREAK_DURATION_MAX 3000
+#define SEND_BREAK_DURATION_ROUNDING_UNIT_US 100
+
 /* Options */
 struct option_t
 {
@@ -69,6 +75,7 @@ struct option_t
     int dsr_pulse_duration;
     int dcd_pulse_duration;
     int ri_pulse_duration;
+    int send_break_duration_us;
     bool no_reconnect;
     bool no_tty_restore;
     auto_connect_t auto_connect;
