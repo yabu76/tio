@@ -64,7 +64,45 @@ def set_nonblocking(fd):
     os.set_blocking(fd, False)
 
 
+class StreamClosedError(Exception):
+    """Raised when an input stream reaches EOF or its peer disappears."""
+
+
+class WaitError(AssertionError):
+    """A wait operation failed, with channel and process diagnostics."""
+
+    def __init__(self, channel, expected, received, timeout, reason,
+                 process_status=None, io_error=None):
+        self.channel = channel
+        self.expected = expected
+        self.received = received
+        self.timeout = timeout
+        self.reason = reason
+        self.process_status = process_status
+        self.io_error = io_error
+
+    def __str__(self):
+        lines = [
+            self.reason,
+            f"  Channel:  {self.channel}",
+            f"  Expected: {self.expected!r}",
+            f"  Received: {self.received!r}" if self.received else
+            "  Received: <no data>",
+            f"  Timeout:  {self.timeout:.2f}s",
+        ]
+        if self.process_status is None:
+            lines.append("  tio process: running")
+        else:
+            lines.append(
+                f"  tio process: exited (status={self.process_status})"
+            )
+        if self.io_error is not None:
+            lines.append(f"  I/O error: {self.io_error}")
+        return "\n".join(lines)
+
+
 def read_fd(fd, timeout):
+    """Read available bytes; distinguish an idle stream from a closed one."""
     end = time.monotonic() + timeout
     chunks = []
 
@@ -81,11 +119,14 @@ def read_fd(fd, timeout):
             chunk = os.read(fd, 4096)
         except BlockingIOError:
             continue
-        except OSError:
-            break
+        except OSError as error:
+            # Linux PTYs commonly report EIO after the slave side closes.
+            raise StreamClosedError(
+                f"read failed: {error}"
+            ) from error
 
         if not chunk:
-            break
+            raise StreamClosedError("file descriptor reached EOF")
 
         chunks.append(chunk)
 
@@ -93,6 +134,7 @@ def read_fd(fd, timeout):
 
 
 def read_socket(sock, timeout):
+    """Read available socket data; EOF means the peer disconnected."""
     end = time.monotonic() + timeout
     chunks = []
 
@@ -109,27 +151,70 @@ def read_socket(sock, timeout):
             chunk = sock.recv(4096)
         except BlockingIOError:
             continue
+        except OSError as error:
+            raise StreamClosedError(
+                f"socket receive failed: {error}"
+            ) from error
 
         if not chunk:
-            break
+            raise StreamClosedError("socket peer disconnected")
 
         chunks.append(chunk)
 
     return b"".join(chunks)
 
 
-def wait_for_match(read_func, expected, timeout=3):
+def wait_for_match(read_func, expected, timeout=3, channel="unknown",
+                   process=None, session=None):
     pattern = re.compile(expected)
-    end = time.monotonic() + timeout
+    start = time.monotonic()
+    end = start + timeout
     data = b""
 
-    while time.monotonic() < end:
-        data += read_func(0.05)
-        if pattern.search(data):
-            return data
+    while True:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            break
 
-    raise AssertionError("timed out waiting for %r in %r" % (expected, data))
+        try:
+            chunk = read_func(min(0.05, remaining))
+            if chunk:
+                data += chunk
+                if session is not None:
+                    session._record("RX", channel, chunk)
+                if pattern.search(data):
+                    return data
+        except StreamClosedError as error:
+            status = process.poll() if process is not None else None
+            reason = "Stream closed while waiting for expected data"
+            if status is not None:
+                reason = "tio process exited and the stream was closed"
+            raise WaitError(
+                channel, expected, data, timeout, reason,
+                status, error,
+            ) from error
+        except OSError as error:
+            status = process.poll() if process is not None else None
+            raise WaitError(
+                channel, expected, data, timeout, "I/O error while waiting",
+                status, error,
+            ) from error
 
+        if process is not None:
+            status = process.poll()
+            if status is not None:
+                raise WaitError(
+                    channel, expected, data, timeout,
+                    "tio process exited before expected data arrived",
+                    status,
+                )
+
+    status = process.poll() if process is not None else None
+    raise WaitError(
+        channel, expected, data, timeout,
+        "Timeout waiting for expected data",
+        status,
+    )
 
 def connect_unix_socket(path, timeout=3):
     end = time.monotonic() + timeout
@@ -157,154 +242,302 @@ class TioSession:
         self.client = None
         self.stdout = b""
         self.serial_rx = b""
+        self.history = []
+        self.started_at = time.monotonic()
+        self.proc = None
+        self.serial_master = None
+        self.stdin_master = None
 
-        self.serial_master, serial_slave = pty.openpty()
-        self.stdin_master, stdin_slave = pty.openpty()
-        # set_nonblocking(self.serial_master) -- python's outbound is blocking for buffering.
-        # set_nonblocking(self.stdin_master) -- python's outbound is blocking for buffering.
+        try:
+            self.serial_master, serial_slave = pty.openpty()
+            self.stdin_master, stdin_slave = pty.openpty()
+            # Keep the master's outbound side blocking to avoid partial writes.
 
-        script_path = os.path.join(self.tmp.name, "script.lua")
-        with open(script_path, "w", encoding="utf-8") as script_file:
-            script_file.write(script)
-            script_file.write("\ntio.write(\"R\")\n")
+            script_path = os.path.join(self.tmp.name, "script.lua")
+            with open(script_path, "w", encoding="utf-8") as script_file:
+                script_file.write(script)
+                script_file.write("\ntio.write(\"R\")\n")
 
-        env = os.environ.copy()
-        env["HOME"] = self.tmp.name
-        env["XDG_CONFIG_HOME"] = os.path.join(self.tmp.name, "xdg")
+            env = os.environ.copy()
+            env["HOME"] = self.tmp.name
+            env["XDG_CONFIG_HOME"] = os.path.join(self.tmp.name, "xdg")
 
-        args = [
-            TIO,
-            "--local-echo",
-            "--no-reconnect",
-            "--baudrate",
-            "115200",
-            "--script-file",
-            script_path,
-        ]
+            args = [
+                TIO,
+                "--local-echo",
+                "--no-reconnect",
+                "--baudrate",
+                "115200",
+                "--script-file",
+                script_path,
+            ]
 
-        if mute:
-            args.append("--mute")
-        if log_path is not None:
-            args += ["--log", "--log-file", log_path]
-        if socket_path is not None:
-            args += ["--socket", "unix:" + socket_path]
+            if mute:
+                args.append("--mute")
+            if log_path is not None:
+                args += ["--log", "--log-file", log_path]
+            if socket_path is not None:
+                args += ["--socket", "unix:" + socket_path]
 
-        args.append(os.ttyname(serial_slave))
+            args.append(os.ttyname(serial_slave))
 
-        self.proc = subprocess.Popen(
-            args,
-            stdin=stdin_slave,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
-
-        os.close(serial_slave)
-        os.close(stdin_slave)
-        # set_nonblocking(self.proc.stdout.fileno()) -- tio's stdout is blocking for buffering.
-
-        if socket_path is not None:
-            self.client = connect_unix_socket(socket_path)
-            time.sleep(0.2)
-
-        self.drain_stdout() # cleaning tio's stdout before receiving 'ready'
-
-        if ready is not None:
-            wait_for_match(
-                lambda timeout: read_fd(self.serial_master, timeout),
-                ready,
+            self.proc = subprocess.Popen(
+                args,
+                stdin=stdin_slave,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=env,
             )
+            self._record("START", "process", " ".join(args))
+
+            os.close(serial_slave)
+            serial_slave = None
+            os.close(stdin_slave)
+            stdin_slave = None
+
+            if socket_path is not None:
+                try:
+                    self.client = connect_unix_socket(socket_path)
+                    self._record("CONNECTED", "socket", socket_path)
+                    time.sleep(0.2)
+                except Exception as error:
+                    raise AssertionError(
+                        f"SETUP_ERROR: unable to connect to socket "
+                        f"{socket_path!r}: {error}; "
+                        f"tio status={self.proc.poll()}"
+                    ) from error
+
+            # Discard startup chatter before waiting for the script marker.
+            self.drain_stdout()
+
+            if ready is not None:
+                self._wait_ready(ready)
+        except Exception:
+            self.close()
+            raise
+        finally:
+            # If setup failed before these descriptors were closed.
+            for fd_name in ("serial_slave", "stdin_slave"):
+                fd = locals().get(fd_name)
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+
+    def _record(self, direction, channel, data):
+        elapsed = time.monotonic() - self.started_at
+        if isinstance(data, bytes):
+            rendered = repr(data)
+        else:
+            rendered = str(data)
+        self.history.append(
+            f"[{elapsed:8.3f}] {direction:9s} {channel:7s} {rendered}"
+        )
+        # Bound memory use if a test produces a large amount of traffic.
+        if len(self.history) > 100:
+            del self.history[:-100]
+
+    def _wait_ready(self, expected):
+        progress("WAIT serial (startup): %r" % expected)
+        data = wait_for_match(
+            lambda timeout: read_fd(self.serial_master, timeout),
+            expected,
+            channel="serial (startup READY)",
+            process=self.proc,
+            session=self,
+        )
+        self.serial_rx += data
+        progress("RX serial (startup): %r" % data)
+
+    def _write(self, fd, data, channel, direction):
+        try:
+            os.write(fd, data)
+        except OSError as error:
+            self._record("ERROR", channel, error)
+            raise AssertionError(
+                f"I/O error writing to {channel}: {error}; "
+                f"tio status={self.proc.poll() if self.proc else None}"
+            ) from error
+        self._record(direction, channel, data)
 
     def wait_stdout(self, expected, timeout=3.0):
         progress("WAIT stdout: %r" % expected)
-
-        data = wait_for_match(
-            lambda t: read_fd(self.proc.stdout.fileno(), t),
-            expected,
-            timeout,
-        )
+        try:
+            data = wait_for_match(
+                lambda t: read_fd(self.proc.stdout.fileno(), t),
+                expected,
+                timeout,
+                channel="stdout",
+                process=self.proc,
+                session=self,
+            )
+        except WaitError as error:
+            self.stdout += error.received
+            raise
         self.stdout += data
         progress("RX stdout: %r" % data)
         return data
 
     def read_stdout(self, timeout=0.3):
-        data = read_fd(self.proc.stdout.fileno(), timeout)
+        try:
+            data = read_fd(self.proc.stdout.fileno(), timeout)
+        except StreamClosedError as error:
+            raise AssertionError(
+                f"stdout closed while reading; tio status={self.proc.poll()}: "
+                f"{error}"
+            ) from error
         self.stdout += data
+        if data:
+            self._record("RX", "stdout", data)
         return data
 
     def drain_stdout(self):
-        self.stdout += read_fd(self.proc.stdout.fileno(), 0.1)
+        try:
+            data = read_fd(self.proc.stdout.fileno(), 0.1)
+        except StreamClosedError as error:
+            raise AssertionError(
+                f"stdout closed during setup; tio status={self.proc.poll()}: "
+                f"{error}"
+            ) from error
+        if data:
+            self._record("DISCARD", "stdout", data)
         self.stdout = b""
 
     def write_stdin(self, data):
         progress("IN stdin: %r" % data)
-        os.write(self.stdin_master, data)
+        self._write(self.stdin_master, data, "stdin", "TX")
 
     def wait_serial(self, expected, timeout=3):
         progress("WAIT serial: %r" % expected)
-
-        data = wait_for_match(
-            lambda t: read_fd(self.serial_master, t),
-            expected,
-            timeout,
-        )
+        try:
+            data = wait_for_match(
+                lambda t: read_fd(self.serial_master, t),
+                expected,
+                timeout,
+                channel="serial",
+                process=self.proc,
+                session=self,
+            )
+        except WaitError as error:
+            self.serial_rx += error.received
+            raise
         self.serial_rx += data
         progress("RX serial: %r" % data)
         return data
 
     def read_serial(self, timeout=3):
-        data = read_fd(self.serial_master, timeout)
+        try:
+            data = read_fd(self.serial_master, timeout)
+        except StreamClosedError as error:
+            raise AssertionError(
+                f"serial stream closed; tio status={self.proc.poll()}: {error}"
+            ) from error
         self.serial_rx += data
+        if data:
+            self._record("RX", "serial", data)
         return self.serial_rx
 
     def drain_serial(self):
-        self.serial_rx += read_fd(self.serial_master, 0.1)
+        try:
+            data = read_fd(self.serial_master, 0.1)
+        except StreamClosedError as error:
+            raise AssertionError(
+                f"serial stream closed while draining; "
+                f"tio status={self.proc.poll()}: {error}"
+            ) from error
+        if data:
+            self._record("DISCARD", "serial", data)
         self.serial_rx = b""
 
     def write_serial(self, data, verbose_off=True):
         if not verbose_off:
             progress("TX serial: %r" % data)
-        os.write(self.serial_master, data)
+        self._write(self.serial_master, data, "serial", "TX")
 
     def wait_socket(self, expected, timeout=3):
         if self.client is None:
-            raise AssertionError("no socket client")
+            raise AssertionError("SETUP_ERROR: no socket client")
         progress("WAIT socket: %r (timeout=%ss)" % (expected, timeout))
         try:
             data = wait_for_match(
-                lambda t: read_socket(self.client, t), expected, timeout
+                lambda t: read_socket(self.client, t),
+                expected,
+                timeout,
+                channel="socket",
+                process=self.proc,
+                session=self,
             )
-        except AssertionError:
-            progress("socket timeout")
+        except WaitError:
             raise
         progress("RX socket: %r" % data)
         return data
 
+    def diagnostic(self):
+        status = self.proc.poll() if self.proc is not None else None
+        lines = [
+            "  tio process: " + (
+                "not started" if self.proc is None else
+                "running" if status is None else f"exited (status={status})"
+            )
+        ]
+        if self.stdout:
+            lines.append(f"  stdout buffer: {self.stdout!r}")
+        if self.serial_rx:
+            lines.append(f"  serial buffer: {self.serial_rx!r}")
+        if self.history:
+            lines.append("  recent communication history:")
+            lines.extend("    " + item for item in self.history[-20:])
+        return "\n".join(lines)
+
     def close(self):
-        if self.proc.poll() is None:
+        if self.proc is not None and self.proc.poll() is None:
             try:
-                os.write(self.stdin_master, PREFIX_KEY + b"q")
+                self._write(
+                    self.stdin_master, PREFIX_KEY + b"q", "stdin", "TX"
+                )
                 self.proc.wait(timeout=3)
-            except Exception as e:
-                print(f"close error: {e}")
-                self.proc.terminate()
+            except Exception as error:
+                print(f"close error: {error}", file=sys.stderr, flush=True)
                 try:
+                    self.proc.terminate()
                     self.proc.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     self.proc.kill()
                     self.proc.wait(timeout=3)
+                except OSError:
+                    pass
 
         if self.client is not None:
-            self.client.close()
+            try:
+                self.client.close()
+            except OSError:
+                pass
+            self.client = None
 
-        os.close(self.serial_master)
-        os.close(self.stdin_master)
-        self.tmp.cleanup()
+        for fd_name in ("serial_master", "stdin_master"):
+            fd = getattr(self, fd_name, None)
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                setattr(self, fd_name, None)
+
+        if self.tmp is not None:
+            self.tmp.cleanup()
+            self.tmp = None
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, traceback):
+        if exc is not None:
+            # Attach session-level context to failures raised inside a with block.
+            diagnostic = self.diagnostic()
+            if diagnostic:
+                print("Session diagnostics:\n" + diagnostic,
+                      file=sys.stderr, flush=True)
         self.close()
 
 
@@ -327,10 +560,11 @@ def run_tests(tests):
 
         try:
             test()
-        except Exception:
+        except Exception as error:
             elapsed = test_elapsed()
             print("FAIL (%.2fs)" % elapsed, flush=True)
             print("        test: %s" % test.__name__, flush=True)
+            print("        error: %s" % error, flush=True)
             raise
         else:
             elapsed = test_elapsed()
