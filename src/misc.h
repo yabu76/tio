@@ -30,9 +30,12 @@
 #define TOSTRING_(x) #x
 #define TOSTR(x) TOSTRING_(x)
 
+#define ROUND_UP(x, unit) (((((x) + (unit) - 1) / (unit))) * (unit))
+
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
 void delay(long ms);
+void usdelay(long us);
 int ctrl_key_code(unsigned char key);
 int ctrl_key_char(int key_code);
 bool regex_match(const char *string, const char *pattern);

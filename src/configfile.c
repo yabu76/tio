@@ -124,6 +124,34 @@ static void config_get_integer(GKeyFile *key_file, gchar *group, gchar *key, int
     *dest = value;
 }
 
+static void config_get_double(GKeyFile *key_file, gchar *group, gchar *key, double *dest, double min, double max)
+{
+    (void)dest;
+    GError *error = NULL;
+
+    double value = g_key_file_get_double(key_file, group, key, &error);
+    if (error != NULL)
+    {
+        if (error->code == G_KEY_FILE_ERROR_KEY_NOT_FOUND)
+        {
+            // Key not found - ignore key
+            g_error_free(error);
+            return;
+        }
+        tio_error_print("%s: %s", config.path, error->message);
+        g_error_free(error);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((value < min) || (value > max))
+    {
+        tio_error_print("%s: Invalid %s value '%f' in %s profile", config.path, key, value, group);
+        exit(EXIT_FAILURE);
+    }
+
+    *dest = value;
+}
+
 static void config_get_bool(GKeyFile *key_file, gchar *group, gchar *key, bool *dest)
 {
     (void)dest;
@@ -185,6 +213,11 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
         g_free((void *)string);
         string = NULL;
     }
+
+    double send_break_duration_ms = 0;
+    config_get_double(key_file, group, "send-break-duration", &send_break_duration_ms, 0, SEND_BREAK_DURATION_MAX);
+    option.send_break_duration_us = ROUND_UP((int)(send_break_duration_ms * 1000), SEND_BREAK_DURATION_ROUNDING_UNIT_US);
+
     config_get_string(key_file, group, "auto-connect", &string, "new", "latest", "direct", NULL);
     if (string != NULL)
     {

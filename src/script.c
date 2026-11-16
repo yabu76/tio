@@ -720,15 +720,34 @@ static int api_ttysearch(lua_State *L)
     return 1;
 }
 
-// lua: tio.send_break()
+// lua: tio.send_break() or tio.send_break(duration_ms)
 static int api_send_break(lua_State *L)
 {
+    int duration_us;
+    if (lua_isnoneornil(L, 1))
+    {
+        duration_us = option.send_break_duration_us;
+    }
+    else
+    {
+        lua_Number duration_ms = luaL_optnumber(L, 1, SEND_BREAK_DURATION_DEFAULT);
+        if (duration_ms < 0 || duration_ms > SEND_BREAK_DURATION_MAX)
+        {
+            return luaL_error(L, "the duration must be in the range 0<=dur<=%d", SEND_BREAK_DURATION_MAX);
+        }
+        /* Value ​​smaller than SEND_BREAK_DURATION_ROUNDING_UNIT_US is truncated */
+        duration_us = ROUND_UP((int)(duration_ms * 1000), SEND_BREAK_DURATION_ROUNDING_UNIT_US);
+    }
+
     if (device_fd == 0)
     {
         return luaL_error(L, "tty device not ready");
     }
 
-    tcsendbreak(device_fd, 0);
+    if (tty_send_break(device_fd, duration_us) < 0)
+    {
+        return luaL_error(L, "%s", strerror(errno));
+    }
     return 0;
 }
 

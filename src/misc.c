@@ -47,6 +47,21 @@ void delay(long ms)
     nanosleep(&ts, NULL);
 }
 
+void usdelay(long us)
+{
+    struct timespec ts;
+
+    if (us <= 0)
+    {
+        return;
+    }
+
+    ts.tv_sec = us / (1000 * 1000);
+    ts.tv_nsec = (us % (1000 * 1000)) * 1000;
+
+    nanosleep(&ts, NULL);
+}
+
 int ctrl_key_code(unsigned char key)
 {
     if ((key >= 'a') && (key <= 'z'))

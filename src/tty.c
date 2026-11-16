@@ -456,7 +456,7 @@ static ssize_t tty_raw_write(int fd)
     {
         if ((raw == RAW_OFF) && (tty_buffer[i] == 0) && (option.map_o_nulbrk))
         {
-            retval = tcsendbreak(fd, 0);
+            retval = tty_send_break(fd, option.send_break_duration_us);
             if (retval < 0)
             {
                 tio_warning_printf("Could not send break");
@@ -836,6 +836,34 @@ static void handle_hex_prompt(char c)
             tio_warning_printf("Could not write to tty device");
         }
     }
+}
+
+int tty_send_break(int fd, int duration_us)
+{
+    if (duration_us < 0)
+    {
+        tio_warning_printf("Duration should be zero or positive value");
+        return -1;
+    }
+    if (duration_us == 0 || !line_control_enable)
+    {
+        return tcsendbreak(fd, 0);
+    }
+
+    if (ioctl(fd, TIOCSBRK) < 0)
+    {
+        tio_warning_printf("Could not set break signal");
+        return -1;
+    }
+
+    usdelay(duration_us);
+
+    if (ioctl(fd, TIOCCBRK) < 0)
+    {
+        tio_warning_printf("Could not clear break signal");
+        return -1;
+    }
+    return 0;
 }
 
 static const char *tty_line_name(int mask)
@@ -1685,7 +1713,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 break;
 
             case KEY_B:
-                tcsendbreak(device_fd, 0);
+                tty_send_break(device_fd, option.send_break_duration_us);
                 break;
 
             case KEY_C:
