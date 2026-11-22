@@ -13,10 +13,11 @@
 #include <termios.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <poll.h>
+#include <string.h>
 #include "xymodem.h"
 #include "print.h"
 #include "misc.h"
+#include "serial_rx.h"
 
 #define SOH 0x01
 #define STX 0x02
@@ -137,11 +138,11 @@ static int xmsend_initial_handshake(int sio, char init_ch)
         if (key_hit)
             return ERR_USER_CAN;
 
-        rc = read_poll(sio, &resp, 1, 50);
+        rc = serial_rx_read(sio, &resp, 1, 50);
         if (rc == 0)
         {
             /* timeout 50 ms
-               resp has last received character beacuse read_poll() doesn't
+               resp has last received character beacuse serial_rx_read() does not
                destroy resp value in this case. */
             if (resp == init_ch) break;
             if (resp == CAN) return ERR;
@@ -168,7 +169,7 @@ static int xmsend_wait_response(int sio, char *resp, char tmo_resp)
         if (key_hit)
             return ERR_USER_CAN;
 
-        rc = read_poll(sio, resp, 1, 50);
+        rc = serial_rx_read(sio, resp, 1, 50);
         if (rc < 0)
         {
             tio_error_print("Read ack/nak from serial failed");
@@ -214,7 +215,7 @@ static int xmsend_repeat_eot_and_wait_response(int sio)
         }
         write(STDOUT_FILENO, "|", 1);
         /* 1s timeout */
-        rc = read_poll(sio, &resp, 1, 1000);
+        rc = serial_rx_read(sio, &resp, 1, 1000);
         if (rc < 0)
         {
             tio_error_print("Read from serial failed");
@@ -498,7 +499,7 @@ static int xmrecv_drain_pending_chars(int sio)
         if (key_hit)
             return ERR_USER_CAN;
 
-        rc = read_poll(sio, &resp, 1, 50);
+        rc = serial_rx_read(sio, &resp, 1, 50);
         if (rc == 0)
         {
             break;
@@ -522,9 +523,6 @@ static int xmrecv_drain_pending_chars(int sio)
 static int xmrecv_start_receive(int sio, bool use_crc)
 {
     int rc;
-    struct pollfd fds;
-    fds.events = POLLIN;
-    fds.fd = sio;
 
     for (int n = 0; n < 20; n++)
     {
@@ -548,7 +546,7 @@ static int xmrecv_start_receive(int sio, bool use_crc)
             return ERR;
         }
         /* Wait until data is available */
-        rc = poll(&fds, 1, 3000);
+        rc = serial_rx_wait_readable(sio, 3000);
         if (rc < 0)
         {
             tio_error_print("%s", strerror(errno));
@@ -556,14 +554,7 @@ static int xmrecv_start_receive(int sio, bool use_crc)
         }
         else if (rc > 0)
         {
-            if (fds.revents & POLLIN)
-            {
-                return OK;
-            }
-            else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
-            {
-                return ERR;
-            }
+            return OK;
         }
         if (key_hit)
             return ERR_USER_CAN;
@@ -582,12 +573,9 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     uint16_t rxCrc = 0;
     int rc;
 
-    struct pollfd fds;
-    fds.events = POLLIN;
-    fds.fd = sio;
 
     /* Read seq bytes*/
-    rc = read_poll(sio, &rxSeq1, 1, 3000);
+    rc = serial_rx_read(sio, &rxSeq1, 1, 3000);
     if (rc == 0)
     {
         tio_error_print("Timeout waiting for first seq byte");
@@ -598,7 +586,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
         tio_error_print("Error reading first seq byte");
         return ERR_FATAL;
     }
-    rc = read_poll(sio, &rxSeq2, 1, 3000);
+    rc = serial_rx_read(sio, &rxSeq2, 1, 3000);
     if (rc == 0)
     {
         tio_error_print("Timeout waiting for second seq byte");
@@ -615,7 +603,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     /* Read packet Data */
     for (unsigned ix = 0; (ix < sizeof(packet->data)); ix++)
     {
-        rc = read_poll(sio, &resp, 1, 3000);
+        rc = serial_rx_read(sio, &resp, 1, 3000);
         /* If the read times out or fails then fail this packet. */
         if (rc == 0)
         {
@@ -651,7 +639,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     if (use_crc)
     {
         /* Read CRC */
-        rc = read_poll(sio, &resp, 1, 3000);
+        rc = serial_rx_read(sio, &resp, 1, 3000);
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for first CRC byte");
@@ -667,7 +655,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
         uint16_t uresp16 = uresp;
         rxCrc  = uresp16 << 8;
 
-        rc = read_poll(sio, &resp, 1, 3000);
+        rc = serial_rx_read(sio, &resp, 1, 3000);
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for second CRC byte");
@@ -686,7 +674,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     else
     {
         /* Read checksum */
-        rc = read_poll(sio, &resp, 1, 3000);
+        rc = serial_rx_read(sio, &resp, 1, 3000);
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for checksum byte");
@@ -706,7 +694,7 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
 
     /* At this point in the code, there should not be anything in the receive buffer
        because the sender has just sent a complete packet and is waiting on a response. */
-    rc = poll(&fds, 1, 10);
+    rc = serial_rx_wait_readable(sio, 10);
     if (rc < 0)
     {
         tio_error_print("%s", strerror(errno));
@@ -720,18 +708,11 @@ static int xmrecv_receive_packet(int sio, struct xpacket_128b_crc *packet, int f
     }
     else if (rc > 0)
     {
-        if (fds.revents & POLLIN)
-        {
-            tio_error_print("RX sync error");
-            char dummy = 0;
-            /* Drain buffer */
-            while (read_poll(sio, &dummy, 1, 100) > 0) {}
-            return ERR;
-        }
-        else /* if (fds.revents & (POLLERR | POLLHUP | POLLNVAL)) */
-        {
-            return ERR;
-        }
+        tio_error_print("RX sync error");
+        char dummy = 0;
+        /* Drain buffer */
+        while (serial_rx_read(sio, &dummy, 1, 100) > 0) {}
+        return ERR;
     }
 
     uint8_t tester = 0xff;
@@ -823,7 +804,7 @@ int xmodem_receive(int sio, int fd, bool use_crc)
     while (!complete)
     {
         /* Poll for 1 new byte for 3 seconds */
-        rc = read_poll(sio, &resp, 1, 3000);
+        rc = serial_rx_read(sio, &resp, 1, 3000);
         if (rc == 0)
         {
             tio_error_print("Timeout waiting for start of next packet");
@@ -954,7 +935,7 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
     key_hit = 0xff;
 
     /* Flush serial and release resources */
-    tcflush(sio, TCIOFLUSH);
+    serial_rx_flush(sio, TCIOFLUSH);
     munmap((void *)buf, len);
     close(fd);
     return err;
@@ -995,7 +976,7 @@ int xymodem_receive(int sio, const char *filename, modem_mode_t mode)
     key_hit = 0xff;
 
     /* Flush serial and release resources */
-    tcflush(sio, TCIOFLUSH);
+    serial_rx_flush(sio, TCIOFLUSH);
     close(fd);
     return err;
 }

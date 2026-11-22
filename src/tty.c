@@ -75,6 +75,7 @@
 #include "xymodem.h"
 #include "fs.h"
 #include "readline.h"
+#include "serial_rx.h"
 
 /* tty device listing configuration */
 
@@ -189,6 +190,7 @@ static struct termios tio, tio_raw, tio_old, stdout_new, stdout_old, stdin_new, 
 static bool stdin_configured = false;
 static bool stdout_configured = false;
 unsigned long rx_total = 0, tx_total = 0;
+unsigned long rx_buffer_overflow = 0, rx_buffer_max_consumption = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
 static bool tty_tcsetattr_first = true;
@@ -721,7 +723,7 @@ void *tty_stdin_input_thread(void *arg)
                             break;
                         case KEY_SHIFT_F:
                             tio_printf("Flushed data I/O buffers");
-                            tcflush(device_fd, TCIOFLUSH);
+                            serial_rx_flush(device_fd, TCIOFLUSH);
                             break;
                         case KEY_SHIFT_R:
                             if (state == STATE_EXEC_SHELL_COMMAND)
@@ -1905,7 +1907,9 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 /* Show tx/rx statistics upon ctrl-t s sequence */
                 tio_printf("Statistics:");
                 tio_printf(" Sent %lu bytes", tx_total);
-                tio_printf(" Received %lu bytes", rx_total);
+                tio_printf(" Received %lu bytes", serial_rx_total());
+                tio_printf(" Rx buffer overflow count %lu", serial_rx_buffer_overflow());
+                tio_printf(" Rx buffer max consumption %lu bytes", serial_rx_buffer_max_consumption());
                 break;
 
             case KEY_T:
@@ -3298,6 +3302,7 @@ void tty_disconnect(void)
     if (connected)
     {
         tio_printf("Disconnected");
+        serial_rx_stop();
         flock(device_fd, LOCK_UN);
         close(device_fd);
         connected = false;
@@ -3309,6 +3314,10 @@ void tty_disconnect(void)
 
 void tty_restore(void)
 {
+    /* Stop the reader before restoring settings or closing the descriptor. */
+    if (connected)
+        serial_rx_stop();
+
     tcsetattr(device_fd, TCSANOW, &tio_old);
 
     if (option.rs485)
@@ -3518,6 +3527,7 @@ int tty_connect(void)
     char   input_buffer[BUFSIZ] = {};
     static bool first = true;
     int    status;
+    int    rx_wakeup_fd = -1;
     bool   do_timestamp = false;
     char*  now = NULL;
     struct timeval hexout_tval_before = {}, hexout_tval_now, hexout_tval_result;
@@ -3621,6 +3631,14 @@ int tty_connect(void)
     /* Manage script activation */
     script_device_bind(device_fd);
 
+    /* Start the serial reader before any non-interactive or script processing. */
+    if (serial_rx_start(device_fd) < 0)
+    {
+        tio_error_printf("Could not start serial receive thread (%s)", strerror(errno));
+        goto error_read;
+    }
+    rx_wakeup_fd = serial_rx_wakeup_fd();
+
     /* If stdin is a pipe forward all input to tty device */
     if (interactive_mode == false)
     {
@@ -3711,10 +3729,10 @@ int tty_connect(void)
         opt_log_timestamp = get_concrete_log_timestamp();
 
         FD_ZERO(&rdfs);
-        FD_SET(device_fd, &rdfs);
+        FD_SET(rx_wakeup_fd, &rdfs);
         FD_SET(pipefd[0], &rdfs);
 
-        maxfd = MAX(device_fd, pipefd[0]);
+        maxfd = MAX(rx_wakeup_fd, pipefd[0]);
         maxfd = MAX(maxfd, socket_add_fds(&rdfs, true));
 
         /* Block until input becomes available */
@@ -3762,22 +3780,20 @@ int tty_connect(void)
         if (status > 0)
         {
             bool forward = false;
-            if (FD_ISSET(device_fd, &rdfs))
+            if (FD_ISSET(rx_wakeup_fd, &rdfs))
             {
-                /*******************************/
-                /* Input from tty device ready */
-                /*******************************/
-
-                ssize_t bytes_read = read(device_fd, input_buffer, BUFSIZ);
-                if (bytes_read <= 0)
+                /*******************************************/
+                /* Data available in serial RX ring buffer */
+                /*******************************************/
+                serial_rx_drain_wakeup();
+                ssize_t bytes_read = serial_rx_read(device_fd, input_buffer, BUFSIZ, POLL_NOWAIT);
+                if (bytes_read < 0)
                 {
-                    /* Error reading - device is likely unplugged */
-                    tio_error_printf_silent("Could not read from tty device");
+                    tio_error_printf_silent("Could not read from tty device (%s)", strerror(errno));
                     goto error_read;
                 }
-
-                /* Update receive statistics */
-                rx_total += bytes_read;
+                if (bytes_read == 0)
+                    continue;
 
                 /* script hook on io receive */
                 const char *rx_buffer = input_buffer;

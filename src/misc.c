@@ -21,6 +21,7 @@
 
 #define _GNU_SOURCE  // For FNM_EXTMATCH
 #include <unistd.h>
+#include <time.h>
 #include <string.h>
 #include <poll.h>
 #include <sys/wait.h>
@@ -29,6 +30,7 @@
 #include <errno.h>
 #include "print.h"
 #include "misc.h"
+#include "serial_rx.h"
 
 static pid_t shell_command_pid = 0;
 
@@ -345,10 +347,11 @@ int execute_shell_command(int fd, const char *command)
 
         while (true)
         {
+            int rx_fd = serial_rx_wakeup_fd();
             FD_ZERO(&rdfs);
-            FD_SET(fd, &rdfs);
+            FD_SET(rx_fd, &rdfs);
             FD_SET(pipefd_c2p[READ_END], &rdfs);
-            maxfd = MAX(fd, pipefd_c2p[READ_END]);
+            maxfd = MAX(rx_fd, pipefd_c2p[READ_END]);
 
             /* Block until input becomes available or timeout */
             status = select(maxfd + 1, &rdfs, NULL, NULL, NULL);
@@ -358,16 +361,31 @@ int execute_shell_command(int fd, const char *command)
                 break;
             }
 
-            if (FD_ISSET(fd, &rdfs))
+            if (FD_ISSET(rx_fd, &rdfs))
             {
-                bytes = read(fd, buf, sizeof(buf));
-                if (bytes <= 0)
+                serial_rx_drain_wakeup();
+                bytes = (int)serial_rx_read(fd, buf, sizeof(buf), POLL_NOWAIT);
+                if (bytes < 0)
                 {
-                    tio_warning_printf("Could not read from tty device");
+                    tio_warning_printf("Could not read from tty device (%s)", strerror(errno));
                     break;
                 }
-                rx_total += bytes;
-                write(pipefd_p2c[WRITE_END], buf, bytes);
+                if (bytes > 0)
+                {
+                    int offset = 0;
+                    while (offset < bytes)
+                    {
+                        int written = (int)write(pipefd_p2c[WRITE_END], buf + offset, (size_t)(bytes - offset));
+                        if (written < 0)
+                        {
+                            if (errno == EINTR)
+                                continue;
+                            tio_warning_printf("Could not forward serial input to shell command (%s)", strerror(errno));
+                            break;
+                        }
+                        offset += written;
+                    }
+                }
             }
 
             if (FD_ISSET(pipefd_c2p[READ_END], &rdfs))

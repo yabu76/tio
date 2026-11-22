@@ -34,6 +34,7 @@
 #include <ctype.h>
 #include <assert.h>
 #include "misc.h"
+#include "serial_rx.h"
 #include "print.h"
 #include "options.h"
 #include "tty.h"
@@ -458,10 +459,10 @@ static int api_read(lua_State *L)
         while (p_len < to_read && ! timed_out)
         {
             // 1st timeout is timeout, other timeouts are no-wait.
-            int current_timeout = is_first_read ? convert_to_timeout_c(timeout) : 0;
+            int current_timeout = is_first_read ? convert_to_timeout_c(timeout) : 0; /* todo: 3rd arg interbyte timeout */
             is_first_read = false;
 
-            ssize_t ret = read_poll(device_fd, p, to_read - p_len, current_timeout);
+            ssize_t ret = serial_rx_read(device_fd, p, to_read - p_len, current_timeout);
             if (ret < 0)
             {
                 luaL_addsize(&buffer, 0);
@@ -511,7 +512,7 @@ static int api_readline(lua_State *L)
     int total_read = 0;
     while (true)
     {
-        int ret = read_poll(device_fd, &ch, 1, convert_to_timeout_c(timeout));
+        int ret = serial_rx_read(device_fd, &ch, 1, convert_to_timeout_c(timeout));
 
         if (ret < 0)
             return luaL_error(L, "%s", strerror(errno));
@@ -807,7 +808,7 @@ static int api_flush_data_io_buffer(lua_State *L)
     {
         return luaL_error(L, "tty device not ready");
     }
-    tcflush(device_fd, TCIOFLUSH);
+    serial_rx_flush(device_fd, TCIOFLUSH);
     return 0;
 }
 
@@ -945,8 +946,9 @@ static int api_get_device_info(lua_State *L)
 static int api_get_statistics(lua_State *L)
 {
     lua_pushinteger(L, tx_total);
-    lua_pushinteger(L, rx_total);
-    return 2;
+    lua_pushinteger(L, serial_rx_total());
+    lua_pushinteger(L, serial_rx_buffer_overflow());
+    return 3;
 }
 
 // lua: tio.get_state()

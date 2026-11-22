@@ -82,7 +82,7 @@ extern const char *device_name;
 extern bool interactive_mode;
 extern bool stdin_and_stdout_connected_to_same_tty;
 extern state_t state;
-extern unsigned long rx_total, tx_total;
+extern unsigned long rx_total, tx_total, rx_buffer_overflow, rx_buffer_max_consumption;
 
 void stdout_configure(void);
 void stdout_reconfigure(void);
