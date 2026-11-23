@@ -76,6 +76,7 @@
 #include "fs.h"
 #include "readline.h"
 #include "serial_rx.h"
+#include "serial_signal.h"
 
 /* tty device listing configuration */
 
@@ -991,42 +992,6 @@ static void tty_line_poke(int fd, int mask, tty_line_mode_t mode, unsigned int d
             tty_line_pulse(fd, mask, duration);
             break;
     }
-}
-
-static bool tty_line_changed(int fd, int *lstat_now, int *lstat_before)
-{
-    if ( ! line_control_enable )
-    {
-        *lstat_now = 0;
-        *lstat_before = 0;
-        return false;
-    }
-
-    static bool line_state_valid = false;
-    static int line_state;
-    const int LINE_STATE_INPUT_MASK = (TIOCM_CTS | TIOCM_DSR | TIOCM_CD | TIOCM_RI);
-    int lstat;
-
-    if (line_state_valid)
-    {
-        *lstat_before = line_state;
-    }
-    else
-    {
-        *lstat_before = -1;
-    }
-    if (ioctl(fd, TIOCMGET, &lstat) < 0)
-    {
-        *lstat_now = *lstat_before;
-        return false;
-    }
-
-    line_state = lstat;
-    line_state_valid = true;
-
-    *lstat_now = lstat;
-
-    return (*lstat_now & LINE_STATE_INPUT_MASK) != (*lstat_before & LINE_STATE_INPUT_MASK);
 }
 
 void timer_start(int interval_ms, int complete_ms)
@@ -3302,6 +3267,7 @@ void tty_disconnect(void)
     if (connected)
     {
         tio_printf("Disconnected");
+        serial_signal_stop();
         serial_rx_stop();
         flock(device_fd, LOCK_UN);
         close(device_fd);
@@ -3314,9 +3280,12 @@ void tty_disconnect(void)
 
 void tty_restore(void)
 {
-    /* Stop the reader before restoring settings or closing the descriptor. */
+    /* Stop the reader and the signal monitor before restoring settings or closing the descriptor */
     if (connected)
+    {
+        serial_signal_stop();
         serial_rx_stop();
+    }
 
     tcsetattr(device_fd, TCSANOW, &tio_old);
 
@@ -3528,6 +3497,7 @@ int tty_connect(void)
     static bool first = true;
     int    status;
     int    rx_wakeup_fd = -1;
+    int    signal_wakeup_fd = -1;
     bool   do_timestamp = false;
     char*  now = NULL;
     struct timeval hexout_tval_before = {}, hexout_tval_now, hexout_tval_result;
@@ -3639,6 +3609,21 @@ int tty_connect(void)
     }
     rx_wakeup_fd = serial_rx_wakeup_fd();
 
+    /*
+     * Start monitoring modem input signals.
+     * Lua callbacks are executed later in the main thread.
+     */
+    if (line_control_enable)
+    {
+        if (serial_signal_start(device_fd) < 0)
+        {
+            tio_error_printf("Could not start serial signal monitor (%s)",
+                             strerror(errno));
+            goto error_read;
+        }
+        signal_wakeup_fd = serial_signal_wakeup_fd();
+    }
+
     /* If stdin is a pipe forward all input to tty device */
     if (interactive_mode == false)
     {
@@ -3735,6 +3720,12 @@ int tty_connect(void)
         maxfd = MAX(rx_wakeup_fd, pipefd[0]);
         maxfd = MAX(maxfd, socket_add_fds(&rdfs, true));
 
+        if (signal_wakeup_fd >= 0)
+        {
+            FD_SET(signal_wakeup_fd, &rdfs);
+            maxfd = MAX(maxfd, signal_wakeup_fd);
+        }
+
         /* Block until input becomes available */
         struct timeval tv_timeout;
         status = select(maxfd + 1, &rdfs, NULL, NULL,
@@ -3749,17 +3740,31 @@ int tty_connect(void)
         /* check line signal and loop timer */
         if (status >= 0)
         {
-            // script hook on signal change
-            script_hook_id_t hook_id = SCRIPT_HOOK_ID_SIGNAL_CHANGE;
-            if (script_hook_enabled(hook_id))
-            {
-                int lstat_now, lstat_before;
-                if (tty_line_changed(device_fd, &lstat_now, &lstat_before))
+            /*
+             * Process modem signal change events.
+             * Lua hooks are always called from the main thread.
+             */
+            if ((signal_wakeup_fd >= 0) && (status > 0) && FD_ISSET(signal_wakeup_fd, &rdfs))
+             {
+                serial_signal_drain_wakeup();
+
+                int lstat_now;
+                int lstat_before;
+                script_hook_id_t hook_id = SCRIPT_HOOK_ID_SIGNAL_CHANGE;
+
+                while (serial_signal_get_change(&lstat_now, &lstat_before))
                 {
-                    script_hook_result_t hook_result = script_hook_signal_change(hook_id, lstat_now, lstat_before);
-                    if (hook_result == SCRIPT_HOOK_DROP)
+                    if (script_hook_enabled(hook_id))
                     {
-                        tio_error_printf("Dropped hook due to fatal error");
+                        script_hook_result_t hook_result =
+                            script_hook_signal_change(hook_id,
+                                                      lstat_now,
+                                                      lstat_before);
+
+                        if (hook_result == SCRIPT_HOOK_DROP)
+                        {
+                            tio_error_printf("Dropped hook due to fatal error");
+                        }
                     }
                 }
             }
@@ -4150,7 +4155,7 @@ int tty_connect(void)
                 break; // tty_disconnect() will be naturally triggered by atexit()
             }
 #else
-            tio_error_printf("select() failed (%s)", strerror(errno));
+            tio_error_printf("2:select() failed (%s)", strerror(errno));
             exit(EXIT_FAILURE);
 #endif
         }

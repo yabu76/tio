@@ -31,6 +31,7 @@ tio_sources = [
   'misc.c',
   'tty.c',
   'serial_rx.c',
+  'serial_signal.c',
   'print.c',
   'configfile.c',
   'signals.c',
