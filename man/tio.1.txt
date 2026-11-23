@@ -463,7 +463,7 @@ SCRIPT API
              On success, returns the captures from the pattern, all received data, the start index and the end index.
              On timeout, returns nil and all received data.
 
-       tio.expects(pattern-table, timeout, remaining)
+       tio.expects(pattern_table, timeout, remaining)
              Waits for any of the multiple Lua patterns to match or timeout before continuing. Special characters must be escaped with '\\' or '%'.
              Timeout is in milliseconds, defaults to tio.C.WAIT_FOREVER(==0) meaning it will wait forever.
              Remaining is a string that has already been read from a stream. This argument is optional.
@@ -473,11 +473,13 @@ SCRIPT API
              On success, returns the index of the matched pattern, the captures-table from it, all received data, the start index and the end index.
              On timeout, returns nil, nil and all received data.
 
-       tio.read(size, timeout)
+       tio.read(size, timeout, interbyte_timeout)
              Read up to size bytes from serial device. If timeout is tio.C.WAIT_FOREVER(==0) or not provided it will wait forever until data is ready to read.
              If the timeout is tio.C.NOWAIT (==-1), the function immediately reads as much data as possible from the serial device's RX buffer, up to a maximum of <size> bytes, and returns.
 
              This function returns successfully without waiting for the timeout when it reads less data than the specified size. This behavior is similar to that of the POSIX read() system call.
+
+             To read more input, in addition to the aforementioned behavior, you can specify a value for `interbyte_timeout`. When this is set, the reading continues until the time interval between consecutive received bytes exceeds the specified duration.
 
              On success, returns read data as string. Also emits a single timestamp to stdout and log file per options.timestamp and options.log.
              On timeout, returns nil.

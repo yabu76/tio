@@ -26,7 +26,7 @@ def test_read_larger_than_lua_buffer():
     script = """
 tio.alwaysecho = false
 tio.write("READY")
-local data = tio.read(16384, 1000)
+local data = tio.read(16384, 1000, 100)
 print("READ_LARGE:16384:" .. tostring(data ~= nil and #data == 16384 and data:sub(1, 1) == "z" and data:sub(-1) == "z"))
 tio.alwaysecho = true
 """
@@ -242,7 +242,7 @@ tio.alwaysecho = true
 
 READ_TESTS = [
     test_read_exact_size,
-    # test_read_larger_than_lua_buffer,
+    test_read_larger_than_lua_buffer,
     test_read_returns_available_data_without_waiting_for_full_size,
     test_read_timeout_without_data_returns_nil,
     test_read_nowait_returns_available_data,

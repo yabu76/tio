@@ -420,6 +420,7 @@ static int api_read(lua_State *L)
 {
     int size = luaL_checkinteger(L, 1);
     int timeout = luaL_optinteger(L, 2, 0); // ms, zero value means forever, negative value means nowait.
+    int interbyte_timeout = luaL_optinteger(L, 3, -1);
 
     if (size > READ_SIZE_MAX)
         return luaL_error(L, "size shoule be %d or less", READ_SIZE_MAX);
@@ -458,8 +459,9 @@ static int api_read(lua_State *L)
 
         while (p_len < to_read && ! timed_out)
         {
-            // 1st timeout is timeout, other timeouts are no-wait.
-            int current_timeout = is_first_read ? convert_to_timeout_c(timeout) : 0; /* todo: 3rd arg interbyte timeout */
+            // 1st timeout is timeout, other timeouts are interbyte_timeout (= default no-wait).
+            int current_timeout = is_first_read ?
+                convert_to_timeout_c(timeout) : convert_to_timeout_c(interbyte_timeout);
             is_first_read = false;
 
             ssize_t ret = serial_rx_read(device_fd, p, to_read - p_len, current_timeout);

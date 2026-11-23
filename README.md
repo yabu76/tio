@@ -430,7 +430,7 @@ Timeout is in milliseconds, defaults to tio.C.WAIT_FOREVER(==0) meaning it will 
 Returns the captures from the pattern and all received data if matched.
 Or return nil and all received data if timeout.
 
-#### `tio.expects(pattern-table, timeout)`
+#### `tio.expects(pattern_table, timeout)`
 
 Waits for any of the multiple Lua pattens to match or timeout before continuing.
 Timeout is in milliseconds, defaults to tio.C.WAIT_FOREVER(==0) meaning it will wait forever.
