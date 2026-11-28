@@ -36,5 +36,5 @@ int serial_rx_wakeup_fd(void);
 void serial_rx_drain_wakeup(void);
 int serial_rx_flush(int fd, int selector);
 unsigned long serial_rx_total(void);
-unsigned long serial_rx_buffer_overflow(void);
+unsigned long serial_rx_buffer_full(void);
 unsigned long serial_rx_buffer_max_consumption(void);

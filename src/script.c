@@ -949,7 +949,7 @@ static int api_get_statistics(lua_State *L)
 {
     lua_pushinteger(L, tx_total);
     lua_pushinteger(L, serial_rx_total());
-    lua_pushinteger(L, serial_rx_buffer_overflow());
+    lua_pushinteger(L, serial_rx_buffer_full());
     return 3;
 }
 

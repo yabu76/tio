@@ -191,7 +191,7 @@ static struct termios tio, tio_raw, tio_old, stdout_new, stdout_old, stdin_new, 
 static bool stdin_configured = false;
 static bool stdout_configured = false;
 unsigned long rx_total = 0, tx_total = 0;
-unsigned long rx_buffer_overflow = 0, rx_buffer_max_consumption = 0;
+unsigned long rx_buffer_full = 0, rx_buffer_max_consumption = 0;
 static bool connected = false;
 static bool standard_baudrate = true;
 static bool tty_tcsetattr_first = true;
@@ -1873,7 +1873,7 @@ void handle_command_sequence(char input_char, char *output_char, bool *forward)
                 tio_printf("Statistics:");
                 tio_printf(" Sent %lu bytes", tx_total);
                 tio_printf(" Received %lu bytes", serial_rx_total());
-                tio_printf(" Rx buffer overflow count %lu", serial_rx_buffer_overflow());
+                tio_printf(" Rx buffer full count %lu", serial_rx_buffer_full());
                 tio_printf(" Rx buffer max consumption %lu bytes", serial_rx_buffer_max_consumption());
                 break;
 

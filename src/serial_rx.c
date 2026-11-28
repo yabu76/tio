@@ -37,7 +37,7 @@
 
 #include "serial_rx.h"
 
-extern unsigned long rx_total, rx_buffer_overflow, rx_buffer_max_consumption;
+extern unsigned long rx_total, rx_buffer_full, rx_buffer_max_consumption;
 
 #define SERIAL_RX_BUFFER_SIZE_DEFAULT (1U * 1024U * 1024U)
 #define SERIAL_RX_CHUNK_SIZE 4096
@@ -81,7 +81,7 @@ static void *serial_rx_worker(void *unused)
 
         pthread_mutex_lock(&rx_mutex);
         if (rx_bufer_len == rx_buffer_size)
-            rx_buffer_overflow++;
+            rx_buffer_full++;
         while (!rx_stopping && rx_bufer_len == rx_buffer_size)
             pthread_cond_wait(&rx_cond, &rx_mutex);
         bool stopping = rx_stopping;
@@ -416,12 +416,12 @@ unsigned long serial_rx_total(void)
     return total;
 }
 
-unsigned long serial_rx_buffer_overflow(void)
+unsigned long serial_rx_buffer_full(void)
 {
     pthread_mutex_lock(&rx_mutex);
-    unsigned long ovf = rx_buffer_overflow;
+    unsigned long cnt_buffer_full = rx_buffer_full;
     pthread_mutex_unlock(&rx_mutex);
-    return ovf;
+    return cnt_buffer_full;
 }
 
 unsigned long serial_rx_buffer_max_consumption(void)
