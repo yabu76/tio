@@ -257,6 +257,13 @@ Append to log file.
 Strip control characters and escape sequences from log.
 
 .TP
+.BR "    \-\-rx\-buffer\-size\-kib \fI<bytes>"
+
+Set the size of the serial receive buffer used by the receiver thread.
+The size is specified in KiB. The default is 1024 (1 MiB).
+The valid range is 16 to 65536 (64 MiB).
+
+.TP
 .BR \-m ", " "\-\-map " \fI<flags>
 
 Map (replace, translate) characters on input from the serial device or output
@@ -1019,6 +1026,8 @@ Set timestamp timeout
 Enable line timestamp in log file
 .IP "\fBlog-timestamp-format"
 Set log file timestamp format
+.IP "\fBrx-buffer-size-kib"
+Set serial receive buffer size in KiB (default: 1024, range: 16 to 65536)
 .IP "\fBmap"
 Map characters on input or output
 .IP "\fBkeymap"

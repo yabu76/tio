@@ -3602,7 +3602,7 @@ int tty_connect(void)
     script_device_bind(device_fd);
 
     /* Start the serial reader before any non-interactive or script processing. */
-    if (serial_rx_start(device_fd) < 0)
+    if (serial_rx_start(device_fd, (size_t)option.rx_buffer_size_kib * 1024U) < 0)
     {
         tio_error_printf("Could not start serial receive thread (%s)", strerror(errno));
         goto error_read;

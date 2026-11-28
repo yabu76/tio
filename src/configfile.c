@@ -290,6 +290,8 @@ static void config_parse_keys(GKeyFile *key_file, char *group)
     config_get_string(key_file, group, "log-directory", &option.log_directory, NULL);
     config_get_bool(key_file, group, "log-append", &option.log_append);
     config_get_bool(key_file, group, "log-strip", &option.log_strip);
+    config_get_integer(key_file, group, "rx-buffer-size-kib", &option.rx_buffer_size_kib,
+                       RX_BUFFER_SIZE_KIB_MIN, RX_BUFFER_SIZE_KIB_MAX);
     config_get_string(key_file, group, "map", &string, NULL);
     if (string != NULL)
     {

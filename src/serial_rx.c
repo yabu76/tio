@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <sys/select.h>
@@ -38,13 +39,14 @@
 
 extern unsigned long rx_total, rx_buffer_overflow, rx_buffer_max_consumption;
 
-#define SERIAL_RX_BUFFER_SIZE (4U * 1024U * 1024U)
+#define SERIAL_RX_BUFFER_SIZE_DEFAULT (1U * 1024U * 1024U)
 #define SERIAL_RX_CHUNK_SIZE 4096
 
 #define READ_END 0
 #define WRITE_END 1
 
-static unsigned char rx_buffer_data[SERIAL_RX_BUFFER_SIZE];
+static unsigned char *rx_buffer_data;
+static size_t rx_buffer_size = SERIAL_RX_BUFFER_SIZE_DEFAULT;
 static size_t rx_buffer_head;
 static size_t rx_bufer_len;
 static int serial_fd = -1;
@@ -78,12 +80,12 @@ static void *serial_rx_worker(void *unused)
         int maxfd = (serial_fd > stop_pipe[READ_END]) ? serial_fd : stop_pipe[READ_END];
 
         pthread_mutex_lock(&rx_mutex);
-        if (rx_bufer_len == SERIAL_RX_BUFFER_SIZE)
+        if (rx_bufer_len == rx_buffer_size)
             rx_buffer_overflow++;
-        while (!rx_stopping && rx_bufer_len == SERIAL_RX_BUFFER_SIZE)
+        while (!rx_stopping && rx_bufer_len == rx_buffer_size)
             pthread_cond_wait(&rx_cond, &rx_mutex);
         bool stopping = rx_stopping;
-        size_t available = SERIAL_RX_BUFFER_SIZE - rx_bufer_len;
+        size_t available = rx_buffer_size - rx_bufer_len;
         pthread_mutex_unlock(&rx_mutex);
         if (stopping)
             break;
@@ -137,8 +139,8 @@ static void *serial_rx_worker(void *unused)
 
         pthread_mutex_lock(&rx_mutex);
         rx_total += (unsigned long)count;
-        size_t tail = (rx_buffer_head + rx_bufer_len) % SERIAL_RX_BUFFER_SIZE;
-        size_t first = SERIAL_RX_BUFFER_SIZE - tail;
+        size_t tail = (rx_buffer_head + rx_bufer_len) % rx_buffer_size;
+        size_t first = rx_buffer_size - tail;
         if (first > (size_t)count)
             first = (size_t)count;
         memcpy(rx_buffer_data + tail, chunk_buf, first);
@@ -180,21 +182,42 @@ static int make_nonblocking_pipe(int fds[2])
     return 0;
 }
 
-int serial_rx_start(int fd)
+int serial_rx_start(int fd, size_t buffer_size)
 {
     if (rx_running)
     {
         errno = EALREADY;
         return -1;
     }
-    if (make_nonblocking_pipe(wake_pipe) < 0)
+    if (buffer_size == 0)
+    {
+        errno = EINVAL;
         return -1;
+    }
+    rx_buffer_data = malloc(buffer_size);
+    if (rx_buffer_data == NULL)
+    {
+        errno = ENOMEM;
+        return -1;
+    }
+    rx_buffer_size = buffer_size;
+
+    if (make_nonblocking_pipe(wake_pipe) < 0)
+    {
+        free(rx_buffer_data);
+        rx_buffer_data = NULL;
+        rx_buffer_size = SERIAL_RX_BUFFER_SIZE_DEFAULT;
+        return -1;
+    }
     if (make_nonblocking_pipe(stop_pipe) < 0)
     {
         close(wake_pipe[READ_END]);
         close(wake_pipe[WRITE_END]);
         wake_pipe[READ_END] = -1;
         wake_pipe[WRITE_END] = -1;
+        free(rx_buffer_data);
+        rx_buffer_data = NULL;
+        rx_buffer_size = SERIAL_RX_BUFFER_SIZE_DEFAULT;
         return -1;
     }
 
@@ -218,6 +241,9 @@ int serial_rx_start(int fd)
         stop_pipe[READ_END] = -1;
         stop_pipe[WRITE_END] = -1;
         serial_fd = -1;
+        free(rx_buffer_data);
+        rx_buffer_data = NULL;
+        rx_buffer_size = SERIAL_RX_BUFFER_SIZE_DEFAULT;
         errno = rc;
         return -1;
     }
@@ -257,6 +283,10 @@ void serial_rx_stop(void)
     rx_error = 0;
     rx_stopping = false;
     pthread_mutex_unlock(&rx_mutex);
+
+    free(rx_buffer_data);
+    rx_buffer_data = NULL;
+    rx_buffer_size = SERIAL_RX_BUFFER_SIZE_DEFAULT;
 }
 
 static int wait_for_data_locked(int timeout)
@@ -334,13 +364,13 @@ ssize_t serial_rx_read(int fd, void *buffer, size_t length, int timeout)
         return ready;
     }
     size_t amount = (rx_bufer_len < length) ? rx_bufer_len : length;
-    size_t first = SERIAL_RX_BUFFER_SIZE - rx_buffer_head;
+    size_t first = rx_buffer_size - rx_buffer_head;
     if (first > amount)
         first = amount;
     memcpy(buffer, rx_buffer_data + rx_buffer_head, first);
     if (amount > first)
         memcpy((unsigned char *)buffer + first, rx_buffer_data, amount - first);
-    rx_buffer_head = (rx_buffer_head + amount) % SERIAL_RX_BUFFER_SIZE;
+    rx_buffer_head = (rx_buffer_head + amount) % rx_buffer_size;
     rx_bufer_len -= amount;
     bool pending = (rx_bufer_len != 0) || (rx_error != 0);
     pthread_cond_broadcast(&rx_cond);

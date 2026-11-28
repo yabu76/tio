@@ -56,6 +56,11 @@ typedef enum
 #define SEND_BREAK_DURATION_MAX 3000
 #define SEND_BREAK_DURATION_ROUNDING_UNIT_US 100
 
+/* Rx-buffer-size constants are in KiB. (for serial) */
+#define RX_BUFFER_SIZE_KIB_DEFAULT (1U * 1024U)
+#define RX_BUFFER_SIZE_KIB_MIN 16U
+#define RX_BUFFER_SIZE_KIB_MAX (64U * 1024U)
+
 /* Options */
 struct option_t
 {
@@ -109,6 +114,7 @@ struct option_t
     char *script_filename;
     script_run_t script_run;
     int timestamp_timeout;
+    int rx_buffer_size_kib;
     char *exclude_devices;
     char *exclude_drivers;
     char *exclude_tids;

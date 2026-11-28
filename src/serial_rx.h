@@ -28,7 +28,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
-int serial_rx_start(int fd);
+int serial_rx_start(int fd, size_t buffer_size);
 void serial_rx_stop(void);
 ssize_t serial_rx_read(int fd, void *buffer, size_t length, int timeout);
 int serial_rx_wait_readable(int fd, int timeout);

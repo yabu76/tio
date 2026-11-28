@@ -199,6 +199,10 @@ OPTIONS
 
               Strip control characters and escape sequences from log.
 
+           --rx-buffer-size-kib <bytes>
+
+              Set the size of the serial receive buffer used by the receiver thread. The size is specified in KiB. The default is 1024 (1 MiB). The valid range is 16 to 65536 (64 MiB).
+
        -m, --map <flags>
 
               Map (replace, translate) characters on input from the serial device or output to the serial device. The following mapping flags are supported:
@@ -893,6 +897,8 @@ CONFIGURATION FILE
        log-timestamp            Enable line timestamp in log file
 
        log-timestamp-format     Set log file timestamp format
+
+       rx-buffer-size-kib       Set serial receive buffer size in KiB (default: 1024, range: 16 to 65536)
 
        map                      Map characters on input or output
 

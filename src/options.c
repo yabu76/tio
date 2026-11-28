@@ -60,6 +60,7 @@ enum opt_t
     OPT_SCRIPT_RUN,
     OPT_INPUT_MODE,
     OPT_OUTPUT_MODE,
+    OPT_RX_BUFFER_SIZE_KIB,
     OPT_EXCLUDE_DEVICES,
     OPT_EXCLUDE_DRIVERS,
     OPT_EXCLUDE_TIDS,
@@ -121,6 +122,7 @@ struct option_t option =
     .script_filename = NULL,
     .script_run = SCRIPT_RUN_ALWAYS,
     .timestamp_timeout = 200,
+    .rx_buffer_size_kib = RX_BUFFER_SIZE_KIB_DEFAULT,
     .exclude_devices = NULL,
     .exclude_drivers = NULL,
     .exclude_tids = NULL,
@@ -180,6 +182,7 @@ void option_print_help(char *argv[])
     printf("  -t, --timestamp                        Enable line timestamp\n");
     printf("      --timestamp-format <format>        Set timestamp format (default: 24hour)\n");
     printf("      --timestamp-timeout <ms>           Set timestamp timeout (default: 200)\n");
+    printf("      --rx-buffer-size-kib <bytes>       Set serial receive buffer size in KiB (default: %d)\n", RX_BUFFER_SIZE_KIB_DEFAULT);
     printf("  -l, --list                             List available serial devices, TIDs, and profiles\n");
     printf("  -L, --log                              Enable log to file\n");
     printf("      --log-file <filename>              Set log filename\n");
@@ -1005,6 +1008,10 @@ void options_print()
 #endif
         }
     }
+    if (option.rx_buffer_size_kib != RX_BUFFER_SIZE_KIB_DEFAULT)
+    {
+        tio_printf(" RX buffer size in KiB: %d", option.rx_buffer_size_kib);
+    }
     tio_printf(" Input mode: %s", option_input_mode_to_string(option.input_mode));
     tio_printf(" Output mode: %s", option_output_mode_to_string(option.output_mode));
     tio_printf(" Raw (non-interactive): %s", option_raw_to_string(option.raw));
@@ -1081,6 +1088,7 @@ void options_parse(int argc, char *argv[])
             {"output-line-delay-char", required_argument, 0, OPT_OUTPUT_LINE_DELAY_CHAR},
             {"line-pulse-duration",  required_argument, 0, OPT_LINE_PULSE_DURATION },
             {"send-break-duration",  required_argument, 0, OPT_SEND_BREAK_DURATION },
+            {"rx-buffer-size-kib",   required_argument, 0, OPT_RX_BUFFER_SIZE_KIB  },
             {"auto-connect",         required_argument, 0, 'a'                     },
             {"exclude-devices",      required_argument, 0, OPT_EXCLUDE_DEVICES     },
             {"exclude-drivers",      required_argument, 0, OPT_EXCLUDE_DRIVERS     },
@@ -1191,6 +1199,11 @@ void options_parse(int argc, char *argv[])
                 option_string_to_double(optarg, &send_break_duration_ms, "send break duration", 0, SEND_BREAK_DURATION_MAX);
                 printf("%f\r\n", send_break_duration_ms);
                 option.send_break_duration_us = ROUND_UP((int)(send_break_duration_ms * 1000), SEND_BREAK_DURATION_ROUNDING_UNIT_US);
+                break;
+
+            case OPT_RX_BUFFER_SIZE_KIB:
+                option_string_to_integer(optarg, &option.rx_buffer_size_kib, "receive buffer size in KiB",
+                                         RX_BUFFER_SIZE_KIB_MIN, RX_BUFFER_SIZE_KIB_MAX);
                 break;
 
             case 'a':
