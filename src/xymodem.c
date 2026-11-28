@@ -890,6 +890,17 @@ int xmodem_receive(int sio, int fd, bool use_crc)
     return OK;
 }
 
+static void xymodem_flush_gracefully(int sio)
+{
+    /*
+     * Regardless of whether tcdrain has been executed, the final data may rarely fail to be transmitted;
+     * therefore, I redo tcdrain and wait for a specified duration before I/O flushing.
+     */
+    tcdrain(sio);
+    usleep(200 * 1000);
+    serial_rx_flush(sio, TCIOFLUSH);
+}
+
 int xymodem_send(int sio, const char *filename, modem_mode_t mode)
 {
     size_t         len;
@@ -935,9 +946,10 @@ int xymodem_send(int sio, const char *filename, modem_mode_t mode)
     key_hit = 0xff;
 
     /* Flush serial and release resources */
-    serial_rx_flush(sio, TCIOFLUSH);
+    xymodem_flush_gracefully(sio);
     munmap((void *)buf, len);
     close(fd);
+
     return err;
 }
 
@@ -976,7 +988,8 @@ int xymodem_receive(int sio, const char *filename, modem_mode_t mode)
     key_hit = 0xff;
 
     /* Flush serial and release resources */
-    serial_rx_flush(sio, TCIOFLUSH);
+    xymodem_flush_gracefully(sio);
     close(fd);
+
     return err;
 }
